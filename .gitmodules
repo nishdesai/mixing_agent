@@ -1,0 +1,3 @@
+[submodule "Inverse-Reinforcement-Learning"]
+	path = Inverse-Reinforcement-Learning
+	url = https://github.com/MatthewJA/Inverse-Reinforcement-Learning.git
