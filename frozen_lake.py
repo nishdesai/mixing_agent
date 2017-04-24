@@ -41,7 +41,17 @@ SEUQUENTIAL_GOAL_MAPS = {
         "FFFFFFFFF",
         "FFFFFFFFF",
         "FFFF1FFFF"
-    ]  
+    ] ,
+        "8x8_multigoal": [
+        "FFFFFFF2",
+        "FFFFFFFF",
+        "FFFHFFFF",
+        "SFFFFHFF",
+        "FFFHFFFF",
+        "FHHFFFHF",
+        "FHFFHFHF",
+        "FFFHFFF1"
+    ],
 }
 
 class FrozenLakeEnv(discrete_env.DiscreteEnv):
@@ -280,7 +290,7 @@ class FrozenLakeEnvSequentialMultigoal(discrete_env.DiscreteEnv):
 
     metadata = {'render.modes': ['human', 'ansi']}
 
-    def __init__(self, desc=None, map_name="9x9_multigoal", is_slippery=False, goal=1):
+    def __init__(self, desc=None, map_name="8x8_multigoal", is_slippery=False, goal=1):
         assert str(goal) in '12'
         if desc is None and map_name is None:
             raise ValueError('Must provide either desc or map_name')
@@ -289,45 +299,51 @@ class FrozenLakeEnvSequentialMultigoal(discrete_env.DiscreteEnv):
         self.desc = desc = np.asarray(desc,dtype='c')
         self.nrow, self.ncol = nrow, ncol = desc.shape
 
+        self.num_goals = num_goals = len(np.where(np.logical_or(desc == b'1', desc == b'2'))[0])
+
         nA = 9
-        nS = (16 * nrow * ncol) + 1
+        nS = (2**num_goals * nrow * ncol) + 1
         self.TERMINAL_STATE = TERMINAL_STATE = nS - 1
 
         # isd = np.array(desc == b'S').astype('float64').ravel()
         # isd /= isd.sum()
 
         def goal_states_to_int(goals):
-            assert len(goals) == 4
+            assert len(goals) == num_goals
             assert np.all([g in [0, 1] for g in goals])
             total = 0
-            for i in range(4):
+            for i in range(num_goals):
                 total += 2**i * goals[i]
             return total
 
         def to_s(row, col, goals):
-            return int(((row*ncol + col) << 4) + goal_states_to_int(goals))
+            return int(((row*ncol + col) << num_goals) + goal_states_to_int(goals))
 
         def inc(row, col, a):
             if a==0: # left
                 col = max(col-1,0)
             elif a==1: # left-down
-                col = max(col-1,0)
-                row = min(row+1,nrow-1)
+                newcol, newrow = max(col-1,0), min(row+1,nrow-1)
+                if newcol == col-1 and newrow == row+1:
+                    col, row = newcol, newrow
             elif a==2: # down
                 row = min(row+1,nrow-1)
             elif a==3: # right-down
-                col = min(col+1,ncol-1)
-                row = min(row+1,nrow-1)
+                newcol, newrow = min(col+1,ncol-1), min(row+1,nrow-1)
+                if newcol == col+1 and newrow == row+1:
+                    col, row = newcol, newrow
             elif a==4: # right
                 col = min(col+1,ncol-1)
             elif a==5: # right-up
-                col = min(col+1,ncol-1)
-                row = max(row-1,0)
+                newcol, newrow = min(col+1,ncol-1), max(row-1,0)
+                if newcol == col+1 and newrow == row-1:
+                    col, row = newcol, newrow
             elif a==6: # up
                 row = max(row-1,0)
             elif a==7: # left-up
-                col = max(col-1,0)
-                row = max(row-1,0)
+                newcol, newrow = max(col-1,0), max(row-1,0)
+                if newcol == col-1 and newrow == row-1:
+                    col, row = newcol, newrow
             return (row, col)
 
 
@@ -339,7 +355,7 @@ class FrozenLakeEnvSequentialMultigoal(discrete_env.DiscreteEnv):
         for row in range(nrow):
             for col in range(ncol):
                 if desc[row, col] == b'S':
-                    isd[to_s(row,col,[0]*4)] = 1.0
+                    isd[to_s(row,col,[0]*num_goals)] = 1.0
                 if desc[row, col] in b'12':
                     goal_inds[(row, col)] = goal_count
                     goal_count += 1
@@ -354,7 +370,7 @@ class FrozenLakeEnvSequentialMultigoal(discrete_env.DiscreteEnv):
 
         for row in range(nrow):
             for col in range(ncol):
-                for goals in map(list, it.product([0, 1], repeat=4)):
+                for goals in map(list, it.product([0, 1], repeat=num_goals)):
                     s = to_s(row, col, goals)
                     for a in range(8):
                         li = P[s][a]
@@ -397,7 +413,7 @@ class FrozenLakeEnvSequentialMultigoal(discrete_env.DiscreteEnv):
             return
         outfile = StringIO() if mode == 'ansi' else sys.stdout
         
-        pos_info = self.s >> 4
+        pos_info = self.s >> self.num_goals
         row, col = pos_info // self.ncol, pos_info % self.ncol
         desc = self.desc.tolist()
         desc = [[c.decode('utf-8') for c in line] for line in desc]
@@ -405,7 +421,7 @@ class FrozenLakeEnvSequentialMultigoal(discrete_env.DiscreteEnv):
         if self.s != self.TERMINAL_STATE:
             desc[row][col] = utils.colorize(desc[row][col], "red", highlight=True)
         
-        if self.lastaction is not None and self.lastaction != 4:
+        if self.lastaction is not None and self.lastaction != 8:
             outfile.write("  ({})\n".format(["Left","Down","Right","Up"][self.lastaction]))
         elif self.s == self.TERMINAL_STATE:
             outfile.write("  (EXITED)\n")
