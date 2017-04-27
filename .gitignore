@@ -96,4 +96,3 @@ ENV/
 .DS_Store
 *.zip
 mixing_agent/
-requirements.txt
