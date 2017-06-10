@@ -375,6 +375,7 @@ class FrozenLakeEnvSequentialMultigoal(discrete_env.DiscreteEnv):
                     for a in range(8):
                         li = P[s][a]
                         letter = desc[row, col]
+                        action_penalty = -0.01 if a % 2 == 0 else -0.01 * (2.0**0.5)
                         if is_slippery:
                             for b in [(a-2)%8, a, (a+2)%8]:
                                 newrow, newcol = inc(row, col, b)
@@ -385,7 +386,7 @@ class FrozenLakeEnvSequentialMultigoal(discrete_env.DiscreteEnv):
                                     goal_already_active = bool(newgoals[goal_inds[(newrow, newcol)]])
                                     newgoals[goal_inds[(newrow, newcol)]] = 1.0
                                 newstate = to_s(newrow, newcol, newgoals)
-                                rew = float(newletter == goalchar and not goal_already_active) or -0.01
+                                rew = float(newletter == goalchar and not goal_already_active) or action_penalty
                                 li.append((0.8 if b==a else 0.1, newstate, rew, False))
                         else:
                             newrow, newcol = inc(row, col, a)
@@ -396,7 +397,7 @@ class FrozenLakeEnvSequentialMultigoal(discrete_env.DiscreteEnv):
                                 goal_already_active = bool(newgoals[goal_inds[(newrow, newcol)]])
                                 newgoals[goal_inds[(newrow, newcol)]] = 1.0
                             newstate = to_s(newrow, newcol, newgoals)
-                            rew = float(newletter == goalchar and not goal_already_active) or -0.01
+                            rew = float(newletter == goalchar and not goal_already_active) or action_penalty
                             li.append((1.0, newstate, rew, False))
             
                     li = P[s][8] #exit action
