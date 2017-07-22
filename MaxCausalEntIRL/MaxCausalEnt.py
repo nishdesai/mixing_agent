@@ -185,10 +185,15 @@ def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold =
         D_new = np.zeros_like(D)
         
         for s in range(mdp.nS):
-            for s_prime in range(mdp.nS):
-                for a_prime in range(mdp.nA):
-                    D_new[s_prime] += (policy[s, a_prime] 
-                                              * (gamma * mdp.T[s,a_prime,s_prime] * D[s]))
+            for a in range(mdp.nA):
+                for p_sprime, s_prime, _ in mdp.P[s][a]:
+                    D_new[s_prime] += (policy[s, a] * (gamma * p_sprime * D[s]))
+
+        #for s in range(mdp.nS):
+        #            for s_prime in range(mdp.nS):
+        #                for a in range(mdp.nA):
+        #                    D_new[s_prime] += (policy[s, a] 
+        #                                              * (gamma * mdp.T[s,a,s_prime] * D[s]))
 
             if np.sum(D_new>1e4) > 0: print('D_new > 1e04, iteration', t)
         
@@ -220,32 +225,61 @@ def irl_log_likelihood_and_grad(r, mdp, gamma, trajectories, horizon=None):
     return L_D, -dL_D_dr
 
 
+def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.1, r = None, horizon=None):
+
+    if r is not None:
+        r = np.random.rand(64)
+
+    mu_hat, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
+    
+    for i in range(epochs):
+        V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
+        
+        # IRL log likelihood term
+        L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, V, r)
+        
+
+        policy = compute_policy(mdp, gamma, reward=r, V=V) 
+        D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)
+        
+        # IRL log likelihood gradient w.r.t reward, inverted for descent
+        dL_D_dr = -(np.sum(mu_hat,1) - D)
+
+        r = r - learning_rate * dL_D_dr
+
+        print('Epoch: ',i, 'log likelihood of the trajectories: ', L_D)
+
+    return r
+
+
 def main():
- 
+
+    learning_rate = 0.1
+    epochs = 30
+    
+    gamma = 0.99
+    horizon = 15
+    traj_len = 15
+
     env = FrozenLakeEnvMultigoal(goal=2)
     env.seed(0);  prng.seed(10)
-
-    NUM_ITER = 75
-    gamma = 0.99
-
-    horizon = 15
     mdp1 = MDP(FrozenLakeEnvMultigoal(is_slippery=False, goal=1))
-
     r1 = np.zeros(64)
     r1[63] = 1.0
+    print('Reward used to generate expert trajectories: ', r1)
 
     policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=None)
-    trajectories1 = generate_trajectories(mdp1, policy1, T=15, num_traj=200)
+    trajectories1 = generate_trajectories(mdp1, policy1, T=traj_len, num_traj=200)
+    print('Generated ', trajectories1.shape[0],' trajectories of length ', traj_len)
 
-    epochs = 30
     r = np.random.rand(64)
     #r[63] = 1
-    print(r)
+    print('Initial reward: ',r)
 
-    for i in range(epochs):
-        cost, grad = irl_log_likelihood_and_grad(r, mdp1, gamma,  trajectories1, horizon=None)
-        r = r - 0.1*grad
-        print(cost)
+    r = max_causal_ent_irl(mdp=mdp1, gamma=gamma, trajectories=trajectories1, 
+                        epochs=30, learning_rate=0.15, r = r)
+
+    print('Final reward: ', r)
 
 
 if __name__ == "__main__":
