@@ -29,7 +29,6 @@ class MDP(object):
         return T
 
 
-
 def softmax(x1,x2):
     max_x = np.amax((x1,x2))
     min_x = np.amin((x1,x2))
@@ -50,7 +49,10 @@ def compute_value_boltzmann(mdp, gamma, reward, horizon = None, threshold=1e-4):
         gamma = 1
     
     v = np.zeros(mdp.nS)
+    
+    # This is how it is supposed to be; running into numerical problems for some reason
     #v = reward
+
     t = 0
     diff = float("inf")
     while diff > threshold:
@@ -75,13 +77,18 @@ def compute_value_boltzmann(mdp, gamma, reward, horizon = None, threshold=1e-4):
         
         t+=1
         if horizon is not None:
-            if t==horizon: print('break'); break
+            if t==horizon: break
     
     return v
 
 
 def compute_policy(mdp, gamma, reward=None, V=None, horizon=None, threshold=1e-4):
+    """
+    Computes the Boltzmann policy from the value function
     
+    -> Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability of taking action a in state s
+    """
+
     if reward is None and V is None: raise Exception('Cannot compute V: no reward provided')
     if V is None: V = compute_value_boltzmann(mdp, gamma, reward, horizon=horizon, threshold=threshold)
     #print(V)
@@ -91,6 +98,10 @@ def compute_policy(mdp, gamma, reward=None, V=None, horizon=None, threshold=1e-4
         for a in range(mdp.nA):
             policy[s,a] = np.exp(reward[s] - V[s] + np.dot(mdp.T[s, a,:], gamma * V))
     
+
+    # Hack for finite horizon length to make the probabilities sum to 1:
+    policy = policy / np.sum(policy, axis=1).reshape((mdp.nS, 1))
+
     if np.sum(np.isnan(policy)) > 0: raise Exception('NaN encountered in policy')
     
     return policy
@@ -123,7 +134,6 @@ def compute_irl_log_likelihood(mdp, gamma, trajectories, V, r):
     return L_D
 
 
-
 def compute_s_a_visitations(mdp, gamma, trajectories):
     """
     Computes the empirical state and state-action visitation frequencies from 
@@ -131,25 +141,25 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
     """
     
     mu_hat_sa = np.zeros((mdp.nS, mdp.nA))
-    v_hat_s = np.zeros((mdp.nS))
+    init_s = np.zeros((mdp.nS))
     for traj in trajectories:
         for (s, a) in traj:
             mu_hat_sa[s, a] += 1
-            v_hat_s[s] += 1
+            init_s[s] += 1
 
-            v_hat_s -= gamma * mdp.T[s,a,:]
+            init_s -= gamma * mdp.T[s,a,:]
             # Same as the line above but slower:
             #for (s_prime, p_transition) in enumerate(t1[s,a,:]):
-            #    v_hat_s[s_prime] -= gamma * p_transition
+            #    init_s[s_prime] -= gamma * p_transition
     
-    v_hat_s = v_hat_s / (trajectories.shape[0] * trajectories.shape[1])
+    init_s = init_s / (trajectories.shape[0] * trajectories.shape[1])
     mu_hat_sa = mu_hat_sa / (trajectories.shape[0] * trajectories.shape[1])
     if np.sum(np.isnan(mu_hat_sa)) > 0: raise Exception('NaN encountered')
     
-    return(mu_hat_sa, v_hat_s)
+    return(mu_hat_sa, init_s)
 
 
-def compute_D(mdp, gamma, V, policy, v_hat_s, horizon=None, D = None, threshold = 1e-6):
+def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold = 1e-6):
     """
     Computes occupancy measure of a MDP under a given policy -- 
     the expected discounted number of times that policy π visits state s.
@@ -159,14 +169,11 @@ def compute_D(mdp, gamma, V, policy, v_hat_s, horizon=None, D = None, threshold 
     
     assert np.sum(np.isnan(V)) == 0
     assert np.sum(np.isnan(policy)) == 0
-    assert np.sum(np.isnan(v_hat_s)) == 0
+    assert np.sum(np.isnan(init_s)) == 0
         
     
-    #if D is None: D =  np.zeros((mdp.nS, mdp.nA), dtype='float64')
-    #if D is None: D = np.tile(v_hat_s, (mdp.nA,1)).T / mdp.nA
-    if D is None: D = v_hat_s    
+    if D is None: D = init_s    
     else: D = np.tile(D, (mdp.nA, 1))
-    
     
     
     if horizon is not None:
@@ -204,9 +211,9 @@ def irl_log_likelihood_and_grad(r, mdp, gamma, trajectories, horizon=None):
     
     # IRL log likelihood gradient w.r.t reward
     policy = compute_policy(mdp, gamma, reward=r, V=V) 
-    mu_hat, v_hat_s = compute_s_a_visitations(mdp, gamma, trajectories)
+    mu_hat, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
     
-    D = compute_D(mdp, gamma, V, policy, v_hat_s, horizon=horizon)
+    D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)
     
     dL_D_dr = np.sum(mu_hat,1) - D
     
@@ -221,13 +228,13 @@ def main():
     NUM_ITER = 75
     gamma = 0.99
 
-    horizon = None
+    horizon = 15
     mdp1 = MDP(FrozenLakeEnvMultigoal(is_slippery=False, goal=1))
 
     r1 = np.zeros(64)
     r1[63] = 1.0
 
-    policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=horizon)
+    policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=None)
     trajectories1 = generate_trajectories(mdp1, policy1, T=15, num_traj=200)
 
     epochs = 30
