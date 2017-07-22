@@ -189,13 +189,7 @@ def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold =
                 for p_sprime, s_prime, _ in mdp.P[s][a]:
                     D_new[s_prime] += (policy[s, a] * (gamma * p_sprime * D[s]))
 
-        #for s in range(mdp.nS):
-        #            for s_prime in range(mdp.nS):
-        #                for a in range(mdp.nA):
-        #                    D_new[s_prime] += (policy[s, a] 
-        #                                              * (gamma * mdp.T[s,a,s_prime] * D[s]))
-
-            if np.sum(D_new>1e4) > 0: print('D_new > 1e04, iteration', t)
+            if np.sum(D_new>1e4) > 0: raise Warning('D_new > 1e04, iteration', t)
         
         diff = np.amax(abs(D - D_new))    
         D = np.copy(D_new)
@@ -225,7 +219,7 @@ def irl_log_likelihood_and_grad(r, mdp, gamma, trajectories, horizon=None):
     return L_D, -dL_D_dr
 
 
-def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.1, r = None, horizon=None):
+def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r = None, horizon=None):
 
     if r is not None:
         r = np.random.rand(64)
@@ -254,7 +248,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.1, r 
 
 def main():
 
-    learning_rate = 0.1
+    learning_rate = 0.2
     epochs = 30
     
     gamma = 0.99
@@ -277,7 +271,7 @@ def main():
     print('Initial reward: ',r)
 
     r = max_causal_ent_irl(mdp=mdp1, gamma=gamma, trajectories=trajectories1, 
-                        epochs=30, learning_rate=0.15, r = r)
+                        epochs=40, learning_rate=learning_rate, r = r)
 
     print('Final reward: ', r)
 
