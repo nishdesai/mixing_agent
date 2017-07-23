@@ -45,9 +45,6 @@ def compute_value_boltzmann(mdp, gamma, reward, horizon = None, threshold=1e-4):
     -> Array of values for each state
     """
     
-    if horizon is not None:
-        gamma = 1
-    
     v = np.zeros(mdp.nS)
     
     # This is how it is supposed to be; running into numerical problems for some reason
@@ -122,15 +119,16 @@ def generate_trajectories(mdp, policy, T=20, num_traj=50):
     return trajectories
 
 
-def compute_irl_log_likelihood(mdp, gamma, trajectories, V, r):
+def compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy=None):
 
     L_D = 0
 
     for traj in trajectories:
         for (s, a) in traj:
             # This is Q[s,a] - V[s]
-            L_D += r[s] + np.dot(mdp.T[s,a,:], gamma * V) - V[s]
-    
+            #L_D += r[s] + np.dot(mdp.T[s,a,:], gamma * V) - V[s]
+            L_D +=np.log(policy[s,a])
+
     return L_D
 
 
@@ -176,9 +174,7 @@ def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold =
     else: D = np.tile(D, (mdp.nA, 1))
     
     
-    if horizon is not None:
-        gamma = 1
-        t = 1
+    t = 1
     
     diff = float("inf")
     while diff > threshold:
@@ -205,15 +201,14 @@ def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold =
 def irl_log_likelihood_and_grad(r, mdp, gamma, trajectories, horizon=None):
     
     V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
+    policy = compute_policy(mdp, gamma, reward=r, V=V)
+    
     # IRL log likelihood term
-    L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, V, r)
+    L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy)
     
     # IRL log likelihood gradient w.r.t reward
-    policy = compute_policy(mdp, gamma, reward=r, V=V) 
     mu_hat, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
-    
     D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)
-    
     dL_D_dr = np.sum(mu_hat,1) - D
     
     return L_D, -dL_D_dr
@@ -228,17 +223,16 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     
     for i in range(epochs):
         V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
+        policy = compute_policy(mdp, gamma, reward=r, V=V) 
         
         # IRL log likelihood term
-        L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, V, r)
-        
-
-        policy = compute_policy(mdp, gamma, reward=r, V=V) 
-        D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)
+        L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy)        
         
         # IRL log likelihood gradient w.r.t reward, inverted for descent
+        D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)        
         dL_D_dr = -(np.sum(mu_hat,1) - D)
 
+        # Descent
         r = r - learning_rate * dL_D_dr
 
         print('Epoch: ',i, 'log likelihood of the trajectories: ', L_D)
@@ -252,7 +246,7 @@ def main():
     epochs = 30
     
     gamma = 0.99
-    horizon = 15
+    horizon = 200
     traj_len = 15
 
     env = FrozenLakeEnvMultigoal(goal=2)
@@ -262,7 +256,7 @@ def main():
     r1[63] = 1.0
     print('Reward used to generate expert trajectories: ', r1)
 
-    policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=None)
+    policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=horizon)
     trajectories1 = generate_trajectories(mdp1, policy1, T=traj_len, num_traj=200)
     print('Generated ', trajectories1.shape[0],' trajectories of length ', traj_len)
 
@@ -271,7 +265,7 @@ def main():
     print('Initial reward: ',r)
 
     r = max_causal_ent_irl(mdp=mdp1, gamma=gamma, trajectories=trajectories1, 
-                        epochs=40, learning_rate=learning_rate, r = r)
+                        epochs=40, learning_rate=learning_rate, r = r, horizon=horizon)
 
     print('Final reward: ', r)
 
