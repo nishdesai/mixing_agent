@@ -30,16 +30,19 @@ class MDP(object):
 
 
 def softmax(x1,x2):
+    # Numerically stable computation of log(exp(x1) + exp(x2))
+    # Described in Algorithm 9.2 in Ziebart's PhD thesis
     max_x = np.amax((x1,x2))
     min_x = np.amin((x1,x2))
     return max_x + np.log(1+np.exp(min_x - max_x))
 
-def compute_value_boltzmann(mdp, gamma, reward, horizon = None, threshold=1e-4):
+def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     """
     Find the optimal value function via value iteration with the max-ent Bellman backup 
-    given at https://graphics.stanford.edu/projects/gpirl/gpirl_supplement.pdf.
+    given at Algorithm 9.1 in Ziebart's PhD thesis and in 
+    https://graphics.stanford.edu/projects/gpirl/gpirl_supplement.pdf.
 
-    reward: Vector of rewards for each state.
+    r: Vector of rewards for each state.
     threshold: Convergence threshold.
     gamma: MDP gamma factor. float.
     -> Array of values for each state
@@ -48,7 +51,7 @@ def compute_value_boltzmann(mdp, gamma, reward, horizon = None, threshold=1e-4):
     v = np.zeros(mdp.nS)
     
     # This is how it is supposed to be; running into numerical problems for some reason
-    #v = reward
+    #v = r
 
     t = 0
     diff = float("inf")
@@ -59,9 +62,9 @@ def compute_value_boltzmann(mdp, gamma, reward, horizon = None, threshold=1e-4):
             v_s_new = 0
             for a in range(mdp.nA):
                 if a == 0:
-                    v_s_new += reward[s] + gamma * np.dot(mdp.T[s, a, :], v_prev)  
+                    v_s_new += r[s] + gamma * np.dot(mdp.T[s, a, :], v_prev)  
                 else:
-                    v_s_new = softmax(v_s_new, reward[s] + gamma * np.dot(mdp.T[s, a, :], v_prev))
+                    v_s_new = softmax(v_s_new, r[s] + gamma * np.dot(mdp.T[s, a, :], v_prev))
             
                 if np.sum(np.isnan(v_s_new)) > 0: 
                     raise Exception('NaN encountered at iteration ', t, 'state',s, ' action ', a)
@@ -79,21 +82,21 @@ def compute_value_boltzmann(mdp, gamma, reward, horizon = None, threshold=1e-4):
     return v
 
 
-def compute_policy(mdp, gamma, reward=None, V=None, horizon=None, threshold=1e-4):
+def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
     """
     Computes the Boltzmann policy from the value function
     
     -> Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability of taking action a in state s
     """
 
-    if reward is None and V is None: raise Exception('Cannot compute V: no reward provided')
-    if V is None: V = compute_value_boltzmann(mdp, gamma, reward, horizon=horizon, threshold=threshold)
+    if r is None and V is None: raise Exception('Cannot compute V: no reward provided')
+    if V is None: V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon, threshold=threshold)
     #print(V)
     
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
-            policy[s,a] = np.exp(reward[s] - V[s] + np.dot(mdp.T[s, a,:], gamma * V))
+            policy[s,a] = np.exp(r[s] - V[s] + np.dot(mdp.T[s, a,:], gamma * V))
     
 
     # Hack for finite horizon length to make the probabilities sum to 1:
@@ -161,6 +164,8 @@ def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold =
     """
     Computes occupancy measure of a MDP under a given policy -- 
     the expected discounted number of times that policy π visits state s.
+    
+    Described in Algorithm 9.3 in Ziebart's PhD thesis
     """
     assert V.shape[0] == mdp.nS
     assert policy.shape == (mdp.nS, mdp.nA)   
@@ -201,7 +206,7 @@ def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold =
 def irl_log_likelihood_and_grad(r, mdp, gamma, trajectories, horizon=None):
     
     V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
-    policy = compute_policy(mdp, gamma, reward=r, V=V)
+    policy = compute_policy(mdp, gamma, r=r, V=V)
     
     # IRL log likelihood term
     L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy)
@@ -223,7 +228,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     
     for i in range(epochs):
         V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
-        policy = compute_policy(mdp, gamma, reward=r, V=V) 
+        policy = compute_policy(mdp, gamma, r=r, V=V) 
         
         # IRL log likelihood term
         L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy)        
@@ -242,7 +247,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
 
 def main():
 
-    learning_rate = 0.2
+    learning_rate = 0.3
     epochs = 30
     
     gamma = 0.99
@@ -265,7 +270,7 @@ def main():
     print('Initial reward: ',r)
 
     r = max_causal_ent_irl(mdp=mdp1, gamma=gamma, trajectories=trajectories1, 
-                        epochs=40, learning_rate=learning_rate, r = r, horizon=horizon)
+                        epochs=epochs, learning_rate=learning_rate, r = r, horizon=horizon)
 
     print('Final reward: ', r)
 
