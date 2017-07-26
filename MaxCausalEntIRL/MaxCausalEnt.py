@@ -14,7 +14,9 @@ class MDP(object):
         self.T = self.get_transition_matrix()
 
     def env2mdp(env):
-        return {s : {a : [tup[:3] for tup in tups] for (a, tups) in a2d.items()} for (s, a2d) in env.P.items()}, env.nS, env.nA, env.desc
+        return ({s : {a : [tup[:3] for tup in tups] 
+                    for (a, tups) in a2d.items()} for (s, a2d) in env.P.items()}, 
+                env.nS, env.nA, env.desc)
     
     def get_transition_matrix(self):
         """Return a matrix with index S,A,S' -> P(S'|S,A)"""
@@ -33,6 +35,8 @@ def softmax(x1,x2):
     """ 
     Numerically stable computation of log(exp(x1) + exp(x2))
     described in Algorithm 9.2 of Ziebart's PhD thesis.
+
+    Note that softmax(softmax(x1,x2), x3) = log(exp(x1) + exp(x2) + exp(x3))
     """
     max_x = np.amax((x1,x2))
     min_x = np.amin((x1,x2))
@@ -60,29 +64,32 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     Returns
     -------
     1D numpy array
-        Array of shape (mdp.nS), each V[s] is the value of state s under the reward r and Boltzmann policy.
+        Array of shape (mdp.nS), each V[s] is the value of state s under the reward r 
+        and Boltzmann policy.
     """
     
     V = np.zeros(mdp.nS)
     
     # This is how it is supposed to be; running into numerical problems for some reason
-    V = r
+    V = r*.99
+
 
     t = 0
     diff = float("inf")
     while diff > threshold:
+        #print(t, V)
         V_prev = np.copy(V)
         diff = 0
         for s in range(mdp.nS):
-            V_s_new = 0
+            # V_s_new = \log[  \sum_a \exp(  r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}   )  ]
             for a in range(mdp.nA):
                 if a == 0:
-                    V_s_new += r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)  
+                    V_s_new = r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)  
                 else:
                     V_s_new = softmax(V_s_new, r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev))
             
                 if np.sum(np.isnan(V_s_new)) > 0: 
-                    raise Exception('NaN encountered at iteration ', t, 'state',s, ' action ', a)
+                    raise Exception('NaN encountered in value, iteration ', t, 'state',s, ' action ', a)
             
             V[s] = V_s_new
             
@@ -98,7 +105,7 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
 
 def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
     """
-    Computes the Boltzmann policy \pi_{(s,a)} = \exp(Q_{(s,a)} - V_s) from the value function.
+    Computes the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s) from the value function.
     
     Parameters
     ----------
@@ -118,12 +125,14 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
     Returns
     -------
     2D numpy array
-        Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability of taking action a in state s.
+        Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability of 
+        taking action a in state s.
     """
 
     if r is None and V is None: raise Exception('Cannot compute V: no reward provided')
     if V is None: V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon, threshold=threshold)
-    
+    print(V)
+
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
@@ -138,7 +147,10 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
 
 
 def compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy=None):
-
+    """
+    Computes log likelihood of the expert trajectories assuming that the expert follows the
+    Boltzmann policy.
+    """
     L_D = 0
 
     for traj in trajectories:
@@ -237,8 +249,8 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     """
     Finds the reward vector that maximizes the log likelihood of the expert trajectories via gradient descent.
     
-    The gradient is the difference between the empirical state visitation frequencies computed from the expert trajectories
-    and the occupancy measure of the MDP under a policy induced by the reward vector.
+    The gradient is the difference between the empirical state visitation frequencies computed from the 
+    expert trajectories and the occupancy measure of the MDP under a policy induced by the reward vector.
 
     Parameters
     ----------
@@ -247,7 +259,8 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     gamma : float 
         Discount factor; 0<=gamma<=1.
     trajectories : 3D numpy array
-        Expert trajectories. Dimensions: [number of trajectories, timesteps in the trajectory, state and action].
+        Expert trajectories. 
+        Dimensions: [number of trajectories, timesteps in the trajectory, state and action].
     epochs : int
         Number of iterations gradient descent will run.
     learning_rate : float
@@ -266,9 +279,6 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     if r is not None:
         r = np.random.rand(mdp.nS)
 
-
-    print(type(trajectories))
-    print(trajectories.shape)
     mu_hat, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
     
     for i in range(epochs):
