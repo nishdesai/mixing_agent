@@ -44,17 +44,29 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     given at Algorithm 9.1 in Ziebart's PhD thesis and in 
     https://graphics.stanford.edu/projects/gpirl/gpirl_supplement.pdf.
 
-    r: Vector of rewards for each state.
-    threshold: Convergence threshold.
-    gamma: MDP discount factor. float.
-    -> Array of values for each state
+    Parameters
+    ----------
+    mdp : object
+        Instance of the MDP class.
+    gamma : float 
+        Discount factor; 0<=gamma<=1.
+    r : 1D numpy array
+        Initial reward vector with the length equal to the number of states in the MDP.
+    horizon : int
+        Horizon for the finite horizon versions of value iteration and occupancy measure computations.
+    threshold : float
+        Convergence threshold.
+
+    Returns
+    -------
+    1D numpy array
+        Array of shape (mdp.nS), each V[s] is the value of state s under the reward r and Boltzmann policy.
     """
     
     V = np.zeros(mdp.nS)
     
     # This is how it is supposed to be; running into numerical problems for some reason
     V = r
-    V = np.ones(mdp.nS)
 
     t = 0
     diff = float("inf")
@@ -86,27 +98,56 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
 
 def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
     """
-    Computes the Boltzmann policy from the value function
+    Computes the Boltzmann policy \pi_{(s,a)} = \exp(Q_{(s,a)} - V_s) from the value function.
     
-    -> Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability of taking action a in state s
+    Parameters
+    ----------
+    mdp : object
+        Instance of the MDP class.
+    gamma : float 
+        Discount factor; 0<=gamma<=1.
+    r : 1D numpy array
+        Initial reward vector with the length equal to the number of states in the MDP.
+    V : 1D numpy array
+        Value of each of the states of the MDP.
+    horizon : int
+        Horizon for the finite horizon versions of value iteration and occupancy measure computations.
+    threshold : float
+        Convergence threshold.
+
+    Returns
+    -------
+    2D numpy array
+        Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability of taking action a in state s.
     """
 
     if r is None and V is None: raise Exception('Cannot compute V: no reward provided')
     if V is None: V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon, threshold=threshold)
-    #print(V)
     
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
             policy[s,a] = np.exp(r[s] - V[s] + np.dot(mdp.T[s, a,:], gamma * V))
     
-
     # Hack for finite horizon length to make the probabilities sum to 1:
     policy = policy / np.sum(policy, axis=1).reshape((mdp.nS, 1))
 
     if np.sum(np.isnan(policy)) > 0: raise Exception('NaN encountered in policy')
     
     return policy
+
+
+def compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy=None):
+
+    L_D = 0
+
+    for traj in trajectories:
+        for (s, a) in traj:
+            # This is Q[s,a] - V[s]
+            #L_D += r[s] + np.dot(mdp.T[s,a,:], gamma * V) - V[s]
+            L_D +=np.log(policy[s,a])
+
+    return L_D
 
 
 def generate_trajectories(mdp, policy, T=20, num_traj=50):
@@ -122,19 +163,6 @@ def generate_trajectories(mdp, policy, T=20, num_traj=50):
         s = mdp.env.reset()
     
     return trajectories
-
-
-def compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy=None):
-
-    L_D = 0
-
-    for traj in trajectories:
-        for (s, a) in traj:
-            # This is Q[s,a] - V[s]
-            #L_D += r[s] + np.dot(mdp.T[s,a,:], gamma * V) - V[s]
-            L_D +=np.log(policy[s,a])
-
-    return L_D
 
 
 def compute_s_a_visitations(mdp, gamma, trajectories):
@@ -205,22 +233,6 @@ def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold =
     return D
 
 
-def irl_log_likelihood_and_grad(r, mdp, gamma, trajectories, horizon=None):
-    
-    V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
-    policy = compute_policy(mdp, gamma, r=r, V=V)
-    
-    # IRL log likelihood term
-    L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy)
-    
-    # IRL log likelihood gradient w.r.t reward
-    mu_hat, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
-    D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)
-    dL_D_dr = np.sum(mu_hat,1) - D
-    
-    return L_D, -dL_D_dr
-
-
 def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r = None, horizon=None):
     """
     Finds the reward vector that maximizes the log likelihood of the expert trajectories via gradient descent.
@@ -231,7 +243,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     Parameters
     ----------
     mdp : object
-        Instance of the MDP class
+        Instance of the MDP class.
     gamma : float 
         Discount factor; 0<=gamma<=1.
     trajectories : 3D numpy array
@@ -249,8 +261,6 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     -------
     1D numpy array
         Reward vector computed with Maximum Causal Entropy algorithm from the expert trajectories.
-
-
     """
 
     if r is not None:
@@ -272,12 +282,28 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
         D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)        
         dL_D_dr = -(np.sum(mu_hat,1) - D)
 
-        # Descent
+        # Gradient descent
         r = r - learning_rate * dL_D_dr
 
         print('Epoch: ',i, 'log likelihood of the trajectories: ', L_D)
 
     return r
+
+
+def irl_log_likelihood_and_grad(r, mdp, gamma, trajectories, horizon=None):
+    
+    V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
+    policy = compute_policy(mdp, gamma, r=r, V=V)
+    
+    # IRL log likelihood term
+    L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy)
+    
+    # IRL log likelihood gradient w.r.t reward
+    mu_hat, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
+    D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)
+    dL_D_dr = np.sum(mu_hat,1) - D
+    
+    return L_D, -dL_D_dr
 
 
 def main():
