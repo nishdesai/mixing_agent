@@ -30,8 +30,10 @@ class MDP(object):
 
 
 def softmax(x1,x2):
-    # Numerically stable computation of log(exp(x1) + exp(x2))
-    # Described in Algorithm 9.2 in Ziebart's PhD thesis
+    """ 
+    Numerically stable computation of log(exp(x1) + exp(x2))
+    described in Algorithm 9.2 of Ziebart's PhD thesis.
+    """
     max_x = np.amax((x1,x2))
     min_x = np.amin((x1,x2))
     return max_x + np.log(1+np.exp(min_x - max_x))
@@ -44,42 +46,42 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
 
     r: Vector of rewards for each state.
     threshold: Convergence threshold.
-    gamma: MDP gamma factor. float.
+    gamma: MDP discount factor. float.
     -> Array of values for each state
     """
     
-    v = np.zeros(mdp.nS)
+    V = np.zeros(mdp.nS)
     
     # This is how it is supposed to be; running into numerical problems for some reason
-    #v = r
+    V = r
+    V = np.ones(mdp.nS)
 
     t = 0
     diff = float("inf")
     while diff > threshold:
-        v_prev = np.copy(v)
+        V_prev = np.copy(V)
         diff = 0
         for s in range(mdp.nS):
-            v_s_new = 0
+            V_s_new = 0
             for a in range(mdp.nA):
                 if a == 0:
-                    v_s_new += r[s] + gamma * np.dot(mdp.T[s, a, :], v_prev)  
+                    V_s_new += r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)  
                 else:
-                    v_s_new = softmax(v_s_new, r[s] + gamma * np.dot(mdp.T[s, a, :], v_prev))
+                    V_s_new = softmax(V_s_new, r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev))
             
-                if np.sum(np.isnan(v_s_new)) > 0: 
+                if np.sum(np.isnan(V_s_new)) > 0: 
                     raise Exception('NaN encountered at iteration ', t, 'state',s, ' action ', a)
             
-            v[s] = v_s_new
-
+            V[s] = V_s_new
             
-        new_diff = np.amax(abs(v_prev - v))
+        new_diff = np.amax(abs(V_prev - V))
         if new_diff > diff: diff = new_diff
         
         t+=1
         if horizon is not None:
             if t==horizon: break
     
-    return v
+    return V
 
 
 def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
@@ -165,7 +167,7 @@ def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold =
     Computes occupancy measure of a MDP under a given policy -- 
     the expected discounted number of times that policy π visits state s.
     
-    Described in Algorithm 9.3 in Ziebart's PhD thesis
+    Described in Algorithm 9.3 of Ziebart's PhD thesis.
     """
     assert V.shape[0] == mdp.nS
     assert policy.shape == (mdp.nS, mdp.nA)   
@@ -220,10 +222,43 @@ def irl_log_likelihood_and_grad(r, mdp, gamma, trajectories, horizon=None):
 
 
 def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r = None, horizon=None):
+    """
+    Finds the reward vector that maximizes the log likelihood of the expert trajectories via gradient descent.
+    
+    The gradient is the difference between the empirical state visitation frequencies computed from the expert trajectories
+    and the occupancy measure of the MDP under a policy induced by the reward vector.
+
+    Parameters
+    ----------
+    mdp : object
+        Instance of the MDP class
+    gamma : float 
+        Discount factor; 0<=gamma<=1.
+    trajectories : 3D numpy array
+        Expert trajectories. Dimensions: [number of trajectories, timesteps in the trajectory, state and action].
+    epochs : int
+        Number of iterations gradient descent will run.
+    learning_rate : float
+        Learning rate for gradient descent.
+    r : 1D numpy array
+        Initial reward vector with the length equal to the number of states in the MDP.
+    horizon : int
+        Horizon for the finite horizon versions of value iteration and occupancy measure computations.
+
+    Returns
+    -------
+    1D numpy array
+        Reward vector computed with Maximum Causal Entropy algorithm from the expert trajectories.
+
+
+    """
 
     if r is not None:
-        r = np.random.rand(64)
+        r = np.random.rand(mdp.nS)
 
+
+    print(type(trajectories))
+    print(trajectories.shape)
     mu_hat, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
     
     for i in range(epochs):
@@ -257,23 +292,22 @@ def main():
     env = FrozenLakeEnvMultigoal(goal=2)
     env.seed(0);  prng.seed(10)
     mdp1 = MDP(FrozenLakeEnvMultigoal(is_slippery=False, goal=1))
-    r1 = np.zeros(64)
-    r1[63] = 1.0
+    r1 = np.zeros(mdp1.nS)
+    r1[-1] = 1
     print('Reward used to generate expert trajectories: ', r1)
 
     policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=horizon)
     trajectories1 = generate_trajectories(mdp1, policy1, T=traj_len, num_traj=200)
     print('Generated ', trajectories1.shape[0],' trajectories of length ', traj_len)
 
-    r = np.random.rand(64)
-    #r[63] = 1
+    r = np.random.rand(mdp1.nS)
+    #r[-1] = 1
     print('Initial reward: ',r)
 
     r = max_causal_ent_irl(mdp=mdp1, gamma=gamma, trajectories=trajectories1, 
                         epochs=epochs, learning_rate=learning_rate, r = r, horizon=horizon)
 
     print('Final reward: ', r)
-
 
 if __name__ == "__main__":
     main()
