@@ -71,7 +71,8 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     V = np.zeros(mdp.nS)
     
     # This is how it is supposed to be; running into numerical problems for some reason
-    V = r*.99
+    V = r + 1
+    print(V)
 
 
     t = 0
