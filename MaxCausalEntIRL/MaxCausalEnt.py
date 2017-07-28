@@ -70,10 +70,8 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     
     V = np.zeros(mdp.nS)
     
-    # This is how it is supposed to be; running into numerical problems for some reason
-    V = r + 1
-    print(V)
-
+    # Running into numerical problems with r= [[0]*63, 1] for some reason
+    V = r * .99999
 
     t = 0
     diff = float("inf")
@@ -132,35 +130,20 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
 
     if r is None and V is None: raise Exception('Cannot compute V: no reward provided')
     if V is None: V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon, threshold=threshold)
-    print(V)
 
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
-            policy[s,a] = np.exp(r[s] - V[s] + np.dot(mdp.T[s, a,:], gamma * V))
+            # This is exp(Q_{s,a} - V_s)
+            policy[s,a] = np.exp(r[s] + np.dot(mdp.T[s, a,:], gamma * V) - V[s] )
     
     # Hack for finite horizon length to make the probabilities sum to 1:
+    # print(np.sum(policy, axis=1))
     policy = policy / np.sum(policy, axis=1).reshape((mdp.nS, 1))
 
     if np.sum(np.isnan(policy)) > 0: raise Exception('NaN encountered in policy')
     
     return policy
-
-
-def compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy=None):
-    """
-    Computes log likelihood of the expert trajectories assuming that the expert follows the
-    Boltzmann policy.
-    """
-    L_D = 0
-
-    for traj in trajectories:
-        for (s, a) in traj:
-            # This is Q[s,a] - V[s]
-            #L_D += r[s] + np.dot(mdp.T[s,a,:], gamma * V) - V[s]
-            L_D +=np.log(policy[s,a])
-
-    return L_D
 
 
 def generate_trajectories(mdp, policy, T=20, num_traj=50):
@@ -182,25 +165,36 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
     """
     Computes the empirical state and state-action visitation frequencies from 
     the expert trajectories
+    
+    Empirical state-action visitation frequencies:
+    sa_visit_count = \sum_{i,t} 1_{s_{i,t} = s \wedge a_{i,t} = a}
+
+    P_0(s) for initialization of the algorithm computing the occupancy measure 
+    of a MDP under a given policy:
+    init_s[j] = \sum_a sa_visit_count[j] - \sum_{i,t} \gamma P(s_j | s_it, a_it)
     """
     
-    mu_hat_sa = np.zeros((mdp.nS, mdp.nA))
+    sa_visit_count = np.zeros((mdp.nS, mdp.nA))
     init_s = np.zeros((mdp.nS))
     for traj in trajectories:
         for (s, a) in traj:
-            mu_hat_sa[s, a] += 1
+            sa_visit_count[s, a] += 1
             init_s[s] += 1
 
+            # This is the - \gamma P(s_j | s_it, a_it) term.
             init_s -= gamma * mdp.T[s,a,:]
             # Same as the line above but slower:
-            #for (s_prime, p_transition) in enumerate(t1[s,a,:]):
+            #for (s_prime, p_transition) in enumerate(t[s,a,:]):
             #    init_s[s_prime] -= gamma * p_transition
     
-    init_s = init_s / (trajectories.shape[0] * trajectories.shape[1])
-    mu_hat_sa = mu_hat_sa / (trajectories.shape[0] * trajectories.shape[1])
-    if np.sum(np.isnan(mu_hat_sa)) > 0: raise Exception('NaN encountered')
+    init_s = init_s / (np.sum(init_s))
+    #init_s = init_s / (trajectories.shape[0] * trajectories.shape[1])
+    #sa_visit_count = sa_visit_count / (trajectories.shape[0] * trajectories.shape[1])
     
-    return(mu_hat_sa, init_s)
+
+    if np.sum(np.isnan(sa_visit_count)) > 0: raise Exception('NaN encountered')
+    
+    return(sa_visit_count, init_s)
 
 
 def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold = 1e-6):
@@ -218,22 +212,27 @@ def compute_D(mdp, gamma, V, policy, init_s, horizon=None, D = None, threshold =
     assert np.sum(np.isnan(init_s)) == 0
         
     
-    if D is None: D = init_s    
-    else: D = np.tile(D, (mdp.nA, 1))
-    
+    if D is None: D = np.ones((mdp.nS)) / mdp.nS     
     
     t = 1
     
     diff = float("inf")
     while diff > threshold:
-        D_new = np.zeros_like(D)
         
+        #D_new = np.zeros_like(D)
+        D_new = init_s
+
         for s in range(mdp.nS):
             for a in range(mdp.nA):
                 for p_sprime, s_prime, _ in mdp.P[s][a]:
-                    D_new[s_prime] += (policy[s, a] * (gamma * p_sprime * D[s]))
 
-            if np.sum(D_new>1e4) > 0: raise Warning('D_new > 1e04, iteration', t)
+                    D_new[s_prime] += (policy[s, a] * ( gamma * p_sprime * D[s]))
+
+            if np.sum(D_new>1e10) > 0: raise Warning('D_new > 1e10, iteration', t)
+        
+        # Normalize for the frequency interpretation. Not sure if it is correct to do this,
+        # but otherwise D essentially doubles at each iteration and never converges.
+        D_new = D_new / np.sum(D_new)
         
         diff = np.amax(abs(D - D_new))    
         D = np.copy(D_new)
@@ -280,18 +279,25 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     if r is not None:
         r = np.random.rand(mdp.nS)
 
-    mu_hat, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
+    sa_visit_count, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
     
     for i in range(epochs):
         V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
         policy = compute_policy(mdp, gamma, r=r, V=V) 
         
         # IRL log likelihood term
-        L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy)        
+        L_D = np.sum(sa_visit_count * np.log(policy))
         
         # IRL log likelihood gradient w.r.t reward, inverted for descent
         D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)        
-        dL_D_dr = -(np.sum(mu_hat,1) - D)
+        
+        #TODO: figure out E_f
+        E_f = np.zeros(mdp.nS)
+        for traj in trajectories: 
+            for (s,a) in traj: 
+                E_f += D[s]
+
+        dL_D_dr = -(np.sum(sa_visit_count,1) - D)
 
         # Gradient descent
         r = r - learning_rate * dL_D_dr
@@ -301,29 +307,13 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     return r
 
 
-def irl_log_likelihood_and_grad(r, mdp, gamma, trajectories, horizon=None):
-    
-    V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
-    policy = compute_policy(mdp, gamma, r=r, V=V)
-    
-    # IRL log likelihood term
-    L_D = compute_irl_log_likelihood(mdp, gamma, trajectories, r, V, policy)
-    
-    # IRL log likelihood gradient w.r.t reward
-    mu_hat, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
-    D = compute_D(mdp, gamma, V, policy, init_s, horizon=horizon)
-    dL_D_dr = np.sum(mu_hat,1) - D
-    
-    return L_D, -dL_D_dr
-
-
 def main():
 
-    learning_rate = 0.3
-    epochs = 30
+    learning_rate = 0.0001
+    epochs = 20
     
     gamma = 0.99
-    horizon = 200
+    horizon = 500
     traj_len = 15
 
     env = FrozenLakeEnvMultigoal(goal=2)
