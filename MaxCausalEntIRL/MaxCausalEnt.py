@@ -3,6 +3,21 @@ import numpy as np, numpy.random as nr, gym
 from gym.spaces import prng
 
 class MDP(object):
+    """
+    MDP object
+
+    Attributes
+    ----------
+    self.nS : int
+        Number of states in the MDP.
+    self.nA : int
+        Number of actions in the MDP.
+    self.P : two-level dict of lists of tuples
+        First key is the state and the second key is the action. 
+        self.P[state][action] is a list of tuples (probability, nextstate, reward).
+    self.T : 3D numpy array
+        The transition probability matrix of the MDP. p(s'|s,a) = self.T[s,a,s']
+    """
     def __init__(self, env):
         P, nS, nA, desc = MDP.env2mdp(env)
         self.P = P # state transition and reward probabilities, explained below
@@ -33,7 +48,7 @@ class MDP(object):
 def softmax(x1,x2):
     """ 
     Numerically stable computation of log(exp(x1) + exp(x2))
-    described in Algorithm 9.2 of Ziebart's PhD thesis.
+    described in Algorithm 9.2 of Ziebart's PhD thesis http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
 
     Note that softmax(softmax(x1,x2), x3) = log(exp(x1) + exp(x2) + exp(x3))
     """
@@ -44,8 +59,7 @@ def softmax(x1,x2):
 def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     """
     Find the optimal value function via value iteration with the max-ent Bellman backup 
-    given at Algorithm 9.1 in Ziebart's PhD thesis and in 
-    https://graphics.stanford.edu/projects/gpirl/gpirl_supplement.pdf.
+    given at Algorithm 9.1 in Ziebart's PhD thesis http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
 
     Parameters
     ----------
@@ -202,12 +216,12 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
     return(sa_visit_count, P_0)
 
 
-def compute_D(mdp, gamma, V, policy, init_s=None, horizon=None, D_prev = None, threshold = 1e-6):
+def compute_D(mdp, gamma, V, policy, P_0=None, horizon=None, D_prev = None, threshold = 1e-6):
     """
     Computes occupancy measure of a MDP under a given policy -- 
     the expected discounted number of times that policy π visits state s.
     
-    Described in Algorithm 9.3 of Ziebart's PhD thesis.
+    Described in Algorithm 9.3 of Ziebart's PhD thesis http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
     """
     assert V.shape[0] == mdp.nS
     assert policy.shape == (mdp.nS, mdp.nA)   
@@ -215,8 +229,9 @@ def compute_D(mdp, gamma, V, policy, init_s=None, horizon=None, D_prev = None, t
     assert np.sum(np.isnan(V)) == 0
     assert np.sum(np.isnan(policy)) == 0
         
-    if init_s is None: init_s = np.ones(mdp.nS) / mdp.nS
-    if D_prev is None: D_prev = np.copy(init_s)     
+
+    if P_0 is None: P_0 = np.ones(mdp.nS) / mdp.nS
+    if D_prev is None: D_prev = np.copy(P_0)     
     
     t = 1
     
@@ -224,12 +239,16 @@ def compute_D(mdp, gamma, V, policy, init_s=None, horizon=None, D_prev = None, t
     diff = float("inf")
     while diff > threshold:
         
-        D = np.copy(init_s)
+        # Line 6 of Algorithm 9.3: 
+        # for all s: D[s] <- P_0[s]
+        D = np.copy(P_0)
 
         for s in range(mdp.nS):
             for a in range(mdp.nA):
+                # Line 9 of Algorithm 9.3:
+                # for all s_prime reachable from s by taking a do:
                 for p_sprime, s_prime, _ in mdp.P[s][a]:
-
+                    # Line 10 of Algorithm 9.3, added gamma:
                     D[s_prime] += (policy[s, a] * ( gamma * p_sprime * D_prev[s]))
 
         diff = np.amax(abs(D_prev - D))    
@@ -278,7 +297,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
 
     sa_visit_count, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
     
-    if r is not None:
+    if r is None:
         r = np.random.rand(mdp.nS)
 
     for i in range(epochs):
