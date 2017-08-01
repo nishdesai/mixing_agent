@@ -39,6 +39,8 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     IRL log likelihood would be a dot product of the current expression for dL_dr with the feature matrix.
     """    
 
+    # Compute the empirical state-action visitation counts and the probability that the 
+    # trajectory will start in state s from the expert trajectories.
     sa_visit_count, P_0 = compute_s_a_visitations(mdp, gamma, trajectories)
     
     if r is None:
@@ -46,12 +48,15 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
 
     for i in range(epochs):
         V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
+        
+        # Compute the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s) from the value function.
         policy = compute_policy(mdp, gamma, r=r, V=V) 
         
         # IRL log likelihood term: 
         # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
         L = np.sum(sa_visit_count * np.log(policy))
         
+        # The expected number of times that policy π visits state s in a given number of timesteps.
         D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
 
         # Mean state visitation count of expert trajectories
