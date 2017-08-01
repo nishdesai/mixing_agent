@@ -17,7 +17,6 @@ class MDP(object):
         self.P[state][action] is a list of tuples (probability, nextstate, reward).
     self.T : 3D numpy array
         The transition probability matrix of the MDP. p(s'|s,a) = self.T[s,a,s']
-
     """
     def __init__(self, env):
         P, nS, nA, desc = MDP.env2mdp(env)
@@ -346,7 +345,6 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
 
         print('Epoch: ',i, 'log likelihood of all traj: ', L, 
             'average per traj step: ', L/(trajectories.shape[0] * trajectories.shape[1]))
-
     return r
 
 
