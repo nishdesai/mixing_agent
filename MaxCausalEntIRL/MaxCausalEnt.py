@@ -283,10 +283,8 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     """
     Finds the reward vector that maximizes the log likelihood of the expert trajectories via gradient descent.
     
-    The gradient is the difference between the empirical state visitation counts computed from the 
+    The gradient is the difference between the mean empirical state visitation counts computed from the 
     expert trajectories and the occupancy measure of the MDP under a policy induced by the reward vector.
-
-    State features are assumed to be one-hot encodings of the state.
 
     Parameters
     ----------
@@ -310,6 +308,12 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     -------
     1D numpy array
         Reward vector computed with Maximum Causal Entropy algorithm from the expert trajectories.
+
+    Note
+    -------
+    Following the Levine implementation, the state features are assumed to be one-hot encodings of the state. 
+    If this is not the case, reward would have to have the shape (feature.shape[0]), and the gradient of the 
+    IRL log likelihood would be a dot product of the current expression for dL_dr with the feature matrix.
     """    
 
     sa_visit_count, P_0 = compute_s_a_visitations(mdp, gamma, trajectories)
@@ -326,9 +330,14 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
         
         D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
 
-        # IRL log likelihood gradient w.r.t reward.
+        # Mean state visitation count of expert trajectories
+        # mean_s_visit_count[s] = ( \sum_{i,t} 1_{traj_s_{i,t} = s} ) / num_traj
+        mean_s_visit_count = np.sum(sa_visit_count,1) / trajectories.shape[0]
+
+        # IRL log likelihood gradient w.r.t reward. Corresponds to line 9 of Algorithm 2 from the MaxCausalEnt IRL
+        # paper http://www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. Refer to the Note in this function.
         # Minus sign to get the gradient of negative log likelihood, which we then minimize with GD.
-        dL_dr = -(np.sum(sa_visit_count,1) / trajectories.shape[0] - D)
+        dL_dr = -(mean_s_visit_count - D)
 
         # Gradient descent
         r = r - learning_rate * dL_dr
