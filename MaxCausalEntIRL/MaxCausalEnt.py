@@ -41,7 +41,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
     be one-hot encodings of the state. If this is not the case, reward 
     would have to have the shape (feature.shape[0]), and the gradient of the 
     IRL log likelihood would be a dot product of the current expression 
-    for dL_dr with the feature matrix.
+    for dL_dr and the feature matrix.
     """    
 
     # Compute the empirical state-action visitation counts and the probability 
@@ -71,7 +71,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
         # IRL log likelihood gradient w.r.t reward. Corresponds to line 9 of 
         # Algorithm 2 from the MaxCausalEnt IRL paper 
         # www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. 
-        # Refer to the Note in this function.Minus sign to get the gradient 
+        # Refer to the Note in this function. Minus sign to get the gradient 
         # of negative log likelihood, which we then minimize with GD.
         dL_dr = -(mean_s_visit_count - D)
 
