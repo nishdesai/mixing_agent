@@ -61,16 +61,16 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
         # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
         L = np.sum(sa_visit_count * np.log(policy))
         
-        # The expected number of times policy π visits state s in a given number of timesteps.
+        # The expected #times policy π visits state s in a given #timesteps.
         D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
 
         # Mean state visitation count of expert trajectories
-        # mean_s_visit_count[s] = ( \sum_{i,t} 1_{traj_s_{i,t} = s} ) / num_traj
+        # mean_s_visit_count[s] = ( \sum_{i,t} 1_{traj_s_{i,t} = s}) / num_traj
         mean_s_visit_count = np.sum(sa_visit_count,1) / trajectories.shape[0]
 
         # IRL log likelihood gradient w.r.t reward. Corresponds to line 9 of 
         # Algorithm 2 from the MaxCausalEnt IRL paper 
-        # http://www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. 
+        # www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. 
         # Refer to the Note in this function.Minus sign to get the gradient 
         # of negative log likelihood, which we then minimize with GD.
         dL_dr = -(mean_s_visit_count - D)
@@ -96,9 +96,9 @@ class MDP(object):
         Number of actions in the MDP.
     self.P : two-level dict of lists of tuples
         First key is the state and the second key is the action. 
-        self.P[state][action] is a list of tuples (probability, nextstate, reward).
+        self.P[state][action] is a list of tuples (prob, nextstate, reward).
     self.T : 3D numpy array
-        The transition probability matrix of the MDP. p(s'|s,a) = self.T[s,a,s']
+        The transition prob matrix of the MDP. p(s'|s,a) = self.T[s,a,s']
     """
     def __init__(self, env):
         P, nS, nA, desc = MDP.env2mdp(env)
@@ -177,7 +177,7 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     while diff > threshold:
         V_prev = np.copy(V)
         for s in range(mdp.nS):
-            # V_s_new = \log[\sum_a \exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'} )]
+            # V_s_new = \log[\sum_a exp(r_s + gamma \sum_{s'} p(s'|s,a)V_{s'})]
             for a in range(mdp.nA):
                 # If-else statement is used to compute softmax correctly. 
                 # If V[s] is initialized as 0 and only the expression from 
@@ -186,9 +186,10 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
                     # V[s] = r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}
                     V[s] = r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)  
                 else:
-                    # V[s] = log(exp(V[s]) + exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}))
+                    # V[s] = log(exp(V[s]) 
+                    #          + exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}))
                     V[s] = softmax(V[s], 
-                                   r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev))
+                                   r[s] + gamma*np.dot(mdp.T[s, a, :], V_prev))
             
                 if np.sum(np.isnan(V[s])) > 0: 
                     raise Exception('NaN encountered in value, iteration ', 
@@ -224,24 +225,26 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
     Returns
     -------
     2D numpy array
-        Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability of 
-        taking action a in state s.
+        Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability 
+        of taking action a in state s.
     """
 
     if r is None and V is None: 
         raise Exception('Cannot compute V: no reward provided')
-    if V is None: V = compute_value_boltzmann(mdp, gamma, r, horizon, threshold)
+    if V is None: 
+        V = compute_value_boltzmann(mdp, gamma, r, horizon, threshold)
 
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
             # This is exp(Q_{s,a} - V_s)
-            policy[s,a] = np.exp(r[s] + np.dot(mdp.T[s, a,:], gamma * V) - V[s] )
+            policy[s,a] = np.exp(r[s] + np.dot(mdp.T[s, a,:], gamma*V) - V[s])
     
     # Hack for finite horizon length to make the probabilities sum to 1:
     policy = policy / np.sum(policy, axis=1).reshape((mdp.nS, 1))
 
-    if np.sum(np.isnan(policy)) > 0: raise Exception('NaN encountered in policy')
+    if np.sum(np.isnan(policy)) > 0: 
+        raise Exception('NaN encountered in policy')
     
     return policy
 
@@ -270,10 +273,10 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
     of a trajectory starting in state s from the expert trajectories.
     
     Empirical state-action visitation counts:
-    sa_visit_count[s,a] = \sum_{i,t} 1_{traj_s_{i,t} = s \wedge traj_a_{i,t} = a}
+    sa_visit_count[s,a] = \sum_{i,t} 1_{traj_s_{i,t} = s AND traj_a_{i,t} = a}
 
     P_0(s) -- probability that the trajectory will start in state s. 
-    P_0[s] = \sum_{i,t} 1_{t = 0 \wedge traj_s_{i,t} = s}  / i
+    P_0[s] = \sum_{i,t} 1_{t = 0 AND traj_s_{i,t} = s}  / i
     Used in computing the occupancy measure of a MDP under a given policy.
 
     Parameters
@@ -383,11 +386,12 @@ def main():
     print('Reward used to generate expert trajectories: ', r1)
 
     policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=horizon)
-    trajectories1 = generate_trajectories(mdp1, policy1, traj_len, num_traj=200)
+    trajectories1 = generate_trajectories(mdp1, policy1, traj_len, 200)
     print('Generated ', trajectories1.shape[0],' traj of length ', traj_len)
 
     sa_visit_count, _ = compute_s_a_visitations(mdp1, gamma, trajectories1)
-    print('Log likelihood of all traj under the policy generated from the original reward: ', 
+    print('Log likelihood of all traj under the policy generated', 
+          'from the original reward: ', 
         np.sum(sa_visit_count * np.log(policy1)), 
         'average per traj step: ', 
         np.sum(sa_visit_count * np.log(policy1)) / 
