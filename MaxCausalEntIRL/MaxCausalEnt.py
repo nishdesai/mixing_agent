@@ -2,12 +2,15 @@ from frozen_lake import *
 import numpy as np, gym
 from gym.spaces import prng
 
-def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r = None, horizon=None):
+def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, 
+                       r = None, horizon=None):
     """
-    Finds the reward vector that maximizes the log likelihood of the expert trajectories via gradient descent.
+    Finds the reward vector that maximizes the log likelihood of the expert 
+    trajectories via gradient descent.
     
-    The gradient is the difference between the mean empirical state visitation counts computed from the 
-    expert trajectories and the occupancy measure of the MDP under a policy induced by the reward vector.
+    The gradient is the difference between the mean empirical state visitation 
+    counts computed from the expert trajectories and the occupancy measure of 
+    the MDP under a policy induced by the reward vector.
 
     Parameters
     ----------
@@ -17,30 +20,32 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
         Discount factor; 0<=gamma<=1.
     trajectories : 3D numpy array
         Expert trajectories. 
-        Dimensions: [number of trajectories, timesteps in the trajectory, state and action].
+        Dimensions: [number of traj, timesteps in the traj, state and action].
     epochs : int
         Number of iterations gradient descent will run.
     learning_rate : float
         Learning rate for gradient descent.
     r : 1D numpy array
-        Initial reward vector with the length equal to the number of states in the MDP.
+        Initial reward vector with the length equal to the #states in the MDP.
     horizon : int
-        Horizon for the finite horizon versions of value iteration and occupancy measure computations.
-
+        Horizon for the finite horizon version of value iteration.
     Returns
     -------
     1D numpy array
-        Reward vector computed with Maximum Causal Entropy algorithm from the expert trajectories.
+        Reward vector computed with Maximum Causal Entropy algorithm from 
+        the expert trajectories.
 
     Note
     -------
-    Following the Levine implementation, the state features are assumed to be one-hot encodings of the state. 
-    If this is not the case, reward would have to have the shape (feature.shape[0]), and the gradient of the 
-    IRL log likelihood would be a dot product of the current expression for dL_dr with the feature matrix.
+    Following the Levine implementation, the state features are assumed to 
+    be one-hot encodings of the state. If this is not the case, reward 
+    would have to have the shape (feature.shape[0]), and the gradient of the 
+    IRL log likelihood would be a dot product of the current expression 
+    for dL_dr with the feature matrix.
     """    
 
-    # Compute the empirical state-action visitation counts and the probability that the 
-    # trajectory will start in state s from the expert trajectories.
+    # Compute the empirical state-action visitation counts and the probability 
+    # of a trajectory starting in state s from the expert trajectories.
     sa_visit_count, P_0 = compute_s_a_visitations(mdp, gamma, trajectories)
     
     if r is None:
@@ -49,30 +54,33 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     for i in range(epochs):
         V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
         
-        # Compute the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s) from the value function.
+        # Compute the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s) 
         policy = compute_policy(mdp, gamma, r=r, V=V) 
         
         # IRL log likelihood term: 
         # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
         L = np.sum(sa_visit_count * np.log(policy))
         
-        # The expected number of times that policy π visits state s in a given number of timesteps.
+        # The expected number of times policy π visits state s in a given number of timesteps.
         D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
 
         # Mean state visitation count of expert trajectories
         # mean_s_visit_count[s] = ( \sum_{i,t} 1_{traj_s_{i,t} = s} ) / num_traj
         mean_s_visit_count = np.sum(sa_visit_count,1) / trajectories.shape[0]
 
-        # IRL log likelihood gradient w.r.t reward. Corresponds to line 9 of Algorithm 2 from the MaxCausalEnt IRL
-        # paper http://www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. Refer to the Note in this function.
-        # Minus sign to get the gradient of negative log likelihood, which we then minimize with GD.
+        # IRL log likelihood gradient w.r.t reward. Corresponds to line 9 of 
+        # Algorithm 2 from the MaxCausalEnt IRL paper 
+        # http://www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. 
+        # Refer to the Note in this function.Minus sign to get the gradient 
+        # of negative log likelihood, which we then minimize with GD.
         dL_dr = -(mean_s_visit_count - D)
 
         # Gradient descent
         r = r - learning_rate * dL_dr
 
         print('Epoch: ',i, 'log likelihood of all traj: ', L, 
-            'average per traj step: ', L/(trajectories.shape[0] * trajectories.shape[1]))
+            'average per traj step: ', 
+            L/(trajectories.shape[0] * trajectories.shape[1]))
     return r
 
 
@@ -97,13 +105,13 @@ class MDP(object):
         self.P = P # state transition and reward probabilities, explained below
         self.nS = nS # number of states
         self.nA = nA # number of actions
-        self.desc = desc # 2D array specifying what each grid cell means (used for plotting)
+        self.desc = desc # 2D array specifying what each grid cell means 
         self.env = env
         self.T = self.get_transition_matrix()
 
     def env2mdp(env):
         return ({s : {a : [tup[:3] for tup in tups] 
-                    for (a, tups) in a2d.items()} for (s, a2d) in env.P.items()}, 
+                for (a, tups) in a2d.items()} for (s, a2d) in env.P.items()}, 
                 env.nS, env.nA, env.desc)
     
     def get_transition_matrix(self):
@@ -133,8 +141,8 @@ def softmax(x1,x2):
 
 def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     """
-    Find the optimal value function via value iteration with the max-ent Bellman backup 
-    given at Algorithm 9.1 in Ziebart's PhD thesis 
+    Find the optimal value function via value iteration with the max-ent 
+    Bellman backup given at Algorithm 9.1 in Ziebart's PhD thesis 
     http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
 
     Parameters
@@ -144,22 +152,24 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     gamma : float 
         Discount factor; 0<=gamma<=1.
     r : 1D numpy array
-        Initial reward vector with the length equal to the number of states in the MDP.
+        Initial reward vector with the length equal to the 
+        number of states in the MDP.
     horizon : int
-        Horizon for the finite horizon versions of value iteration and occupancy measure computations.
+        Horizon for the finite horizon version of value iteration.
     threshold : float
         Convergence threshold.
 
     Returns
     -------
     1D numpy array
-        Array of shape (mdp.nS), each V[s] is the value of state s under the reward r 
-        and Boltzmann policy.
+        Array of shape (mdp.nS), each V[s] is the value of state s under 
+        the reward r and Boltzmann policy.
     """
     
     V = np.zeros(mdp.nS)
     
-    # Running into numerical problems with r= [[0]*63, 1] for some reason. Critch, check this out?
+    # Running into numerical problems with r= [[0]*63, 1] for some reason. 
+    # Critch, check this out?
     V = r * .99999
 
     t = 0
@@ -167,33 +177,34 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     while diff > threshold:
         V_prev = np.copy(V)
         for s in range(mdp.nS):
-            # V_s_new = \log[  \sum_a \exp(  r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}   )  ]
+            # V_s_new = \log[\sum_a \exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'} )]
             for a in range(mdp.nA):
-                # If-else statement is used to compute softmax correctly. If V[s] is initialized as 0 and
-                # only the expression from 'else' is used, there would be an additional e^0 in the sum.
+                # If-else statement is used to compute softmax correctly. 
+                # If V[s] is initialized as 0 and only the expression from 
+                # 'else' is used, there would be an additional e^0 in the sum.
                 if a == 0:
                     # V[s] = r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}
                     V[s] = r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)  
                 else:
-                    # V[s] = log(   exp(V[s]) + exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'})   )
+                    # V[s] = log(exp(V[s]) + exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}))
                     V[s] = softmax(V[s], 
                                    r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev))
             
                 if np.sum(np.isnan(V[s])) > 0: 
-                    raise Exception('NaN encountered in value, iteration ', t, 'state',s, ' action ', a)
+                    raise Exception('NaN encountered in value, iteration ', 
+                                    t, 'state',s, ' action ', a)
                         
         diff = np.amax(abs(V_prev - V))
         
         t+=1
         if horizon is not None:
             if t==horizon: break
-    
     return V
 
 
 def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
     """
-    Computes the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s) from the value function.
+    Computes the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s).
     
     Parameters
     ----------
@@ -202,11 +213,11 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
     gamma : float 
         Discount factor; 0<=gamma<=1.
     r : 1D numpy array
-        Initial reward vector with the length equal to the number of states in the MDP.
+        Initial reward vector with the length equal to the #states in the MDP.
     V : 1D numpy array
         Value of each of the states of the MDP.
     horizon : int
-        Horizon for the finite horizon versions of value iteration and occupancy measure computations.
+        Horizon for the finite horizon version of value iteration.
     threshold : float
         Convergence threshold.
 
@@ -217,8 +228,9 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
         taking action a in state s.
     """
 
-    if r is None and V is None: raise Exception('Cannot compute V: no reward provided')
-    if V is None: V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon, threshold=threshold)
+    if r is None and V is None: 
+        raise Exception('Cannot compute V: no reward provided')
+    if V is None: V = compute_value_boltzmann(mdp, gamma, r, horizon, threshold)
 
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
@@ -254,8 +266,8 @@ def generate_trajectories(mdp, policy, timesteps=20, num_traj=50):
 
 def compute_s_a_visitations(mdp, gamma, trajectories):
     """
-    Computes the empirical state-action visitation counts and the probability that the 
-    trajectory will start in state s from the expert trajectories.
+    Computes the empirical state-action visitation counts and the probability 
+    of a trajectory starting in state s from the expert trajectories.
     
     Empirical state-action visitation counts:
     sa_visit_count[s,a] = \sum_{i,t} 1_{traj_s_{i,t} = s \wedge traj_a_{i,t} = a}
@@ -272,7 +284,7 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
         Discount factor; 0<=gamma<=1.
     trajectories : 3D numpy array
         Expert trajectories. 
-        Dimensions: [number of trajectories, timesteps in the trajectory, state and action].
+        Dimensions: [number of traj, timesteps in the traj, state and action].
 
     Returns
     -------
@@ -297,8 +309,9 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
 
 def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
     """
-    Computes occupancy measure of a MDP under a given time-constrained policy -- 
-    the expected number of times that policy π visits state s in a given number of timesteps.
+    Computes occupancy measure of a MDP under a given time-constrained policy 
+    -- the expected number of times that policy π visits state s in a given 
+    number of timesteps.
     
     Described in Algorithm 9.3 of Ziebart's PhD thesis 
     http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
@@ -312,7 +325,7 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
     policy : 2D numpy array
         policy[s,a] is the probability of taking action a in state s.
     P_0 : 1D numpy array of shape (mdp.nS)
-        i-th element is the probability that the trajectory will start in state i.
+        i-th element is the probability that the traj will start in state i.
     t_max : int
         number of timesteps the policy is executed.
 
@@ -349,7 +362,8 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
             t+=1
             if t==t_max: break
     
-    if np.sum(np.isnan(D_prev)) > 0: raise Exception('NaN encountered in occupancy measure')
+    if np.sum(np.isnan(D_prev)) > 0: 
+        raise Exception('NaN encountered in occupancy measure')
     return D
 
 
@@ -369,20 +383,21 @@ def main():
     print('Reward used to generate expert trajectories: ', r1)
 
     policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=horizon)
-    trajectories1 = generate_trajectories(mdp1, policy1, timesteps=traj_len, num_traj=200)
-    print('Generated ', trajectories1.shape[0],' trajectories of length ', traj_len)
+    trajectories1 = generate_trajectories(mdp1, policy1, traj_len, num_traj=200)
+    print('Generated ', trajectories1.shape[0],' traj of length ', traj_len)
 
     sa_visit_count, _ = compute_s_a_visitations(mdp1, gamma, trajectories1)
-    print('Log likelihood of all trajectories under the policy generated from the original reward: ', 
+    print('Log likelihood of all traj under the policy generated from the original reward: ', 
         np.sum(sa_visit_count * np.log(policy1)), 
         'average per traj step: ', 
-        np.sum(sa_visit_count * np.log(policy1)) / (trajectories1.shape[0] * trajectories1.shape[1]), '\n' )
+        np.sum(sa_visit_count * np.log(policy1)) / 
+                    (trajectories1.shape[0] * trajectories1.shape[1]), '\n' )
 
     r = np.random.rand(mdp1.nS)
     print('Randomly initialized reward: ',r)
 
-    r = max_causal_ent_irl(mdp=mdp1, gamma=gamma, trajectories=trajectories1, 
-                        epochs=epochs, learning_rate=learning_rate, r = r, horizon=horizon)
+    r = max_causal_ent_irl(mdp1, gamma, trajectories1, epochs, learning_rate,
+                           r = r, horizon=horizon)
 
     print('Final reward: ', r)
 
