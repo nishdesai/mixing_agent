@@ -334,9 +334,7 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
     -------
     1D numpy array of shape (mdp.nS)
     """
-    assert policy.shape == (mdp.nS, mdp.nA)   
-    assert np.sum(np.isnan(policy)) == 0
-        
+
     if P_0 is None: P_0 = np.ones(mdp.nS) / mdp.nS
     D_prev = np.copy(P_0)     
     
