@@ -2,6 +2,75 @@ from frozen_lake import *
 import numpy as np, gym
 from gym.spaces import prng
 
+def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r = None, horizon=None):
+    """
+    Finds the reward vector that maximizes the log likelihood of the expert trajectories via gradient descent.
+    
+    The gradient is the difference between the mean empirical state visitation counts computed from the 
+    expert trajectories and the occupancy measure of the MDP under a policy induced by the reward vector.
+
+    Parameters
+    ----------
+    mdp : object
+        Instance of the MDP class.
+    gamma : float 
+        Discount factor; 0<=gamma<=1.
+    trajectories : 3D numpy array
+        Expert trajectories. 
+        Dimensions: [number of trajectories, timesteps in the trajectory, state and action].
+    epochs : int
+        Number of iterations gradient descent will run.
+    learning_rate : float
+        Learning rate for gradient descent.
+    r : 1D numpy array
+        Initial reward vector with the length equal to the number of states in the MDP.
+    horizon : int
+        Horizon for the finite horizon versions of value iteration and occupancy measure computations.
+
+    Returns
+    -------
+    1D numpy array
+        Reward vector computed with Maximum Causal Entropy algorithm from the expert trajectories.
+
+    Note
+    -------
+    Following the Levine implementation, the state features are assumed to be one-hot encodings of the state. 
+    If this is not the case, reward would have to have the shape (feature.shape[0]), and the gradient of the 
+    IRL log likelihood would be a dot product of the current expression for dL_dr with the feature matrix.
+    """    
+
+    sa_visit_count, P_0 = compute_s_a_visitations(mdp, gamma, trajectories)
+    
+    if r is None:
+        r = np.random.rand(mdp.nS)
+
+    for i in range(epochs):
+        V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
+        policy = compute_policy(mdp, gamma, r=r, V=V) 
+        
+        # IRL log likelihood term: 
+        # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
+        L = np.sum(sa_visit_count * np.log(policy))
+        
+        D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
+
+        # Mean state visitation count of expert trajectories
+        # mean_s_visit_count[s] = ( \sum_{i,t} 1_{traj_s_{i,t} = s} ) / num_traj
+        mean_s_visit_count = np.sum(sa_visit_count,1) / trajectories.shape[0]
+
+        # IRL log likelihood gradient w.r.t reward. Corresponds to line 9 of Algorithm 2 from the MaxCausalEnt IRL
+        # paper http://www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. Refer to the Note in this function.
+        # Minus sign to get the gradient of negative log likelihood, which we then minimize with GD.
+        dL_dr = -(mean_s_visit_count - D)
+
+        # Gradient descent
+        r = r - learning_rate * dL_dr
+
+        print('Epoch: ',i, 'log likelihood of all traj: ', L, 
+            'average per traj step: ', L/(trajectories.shape[0] * trajectories.shape[1]))
+    return r
+
+
 class MDP(object):
     """
     MDP object
@@ -277,75 +346,6 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
     
     if np.sum(np.isnan(D_prev)) > 0: raise Exception('NaN encountered in occupancy measure')
     return D
-
-
-def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r = None, horizon=None):
-    """
-    Finds the reward vector that maximizes the log likelihood of the expert trajectories via gradient descent.
-    
-    The gradient is the difference between the mean empirical state visitation counts computed from the 
-    expert trajectories and the occupancy measure of the MDP under a policy induced by the reward vector.
-
-    Parameters
-    ----------
-    mdp : object
-        Instance of the MDP class.
-    gamma : float 
-        Discount factor; 0<=gamma<=1.
-    trajectories : 3D numpy array
-        Expert trajectories. 
-        Dimensions: [number of trajectories, timesteps in the trajectory, state and action].
-    epochs : int
-        Number of iterations gradient descent will run.
-    learning_rate : float
-        Learning rate for gradient descent.
-    r : 1D numpy array
-        Initial reward vector with the length equal to the number of states in the MDP.
-    horizon : int
-        Horizon for the finite horizon versions of value iteration and occupancy measure computations.
-
-    Returns
-    -------
-    1D numpy array
-        Reward vector computed with Maximum Causal Entropy algorithm from the expert trajectories.
-
-    Note
-    -------
-    Following the Levine implementation, the state features are assumed to be one-hot encodings of the state. 
-    If this is not the case, reward would have to have the shape (feature.shape[0]), and the gradient of the 
-    IRL log likelihood would be a dot product of the current expression for dL_dr with the feature matrix.
-    """    
-
-    sa_visit_count, P_0 = compute_s_a_visitations(mdp, gamma, trajectories)
-    
-    if r is None:
-        r = np.random.rand(mdp.nS)
-
-    for i in range(epochs):
-        V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
-        policy = compute_policy(mdp, gamma, r=r, V=V) 
-        
-        # IRL log likelihood term: 
-        # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
-        L = np.sum(sa_visit_count * np.log(policy))
-        
-        D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
-
-        # Mean state visitation count of expert trajectories
-        # mean_s_visit_count[s] = ( \sum_{i,t} 1_{traj_s_{i,t} = s} ) / num_traj
-        mean_s_visit_count = np.sum(sa_visit_count,1) / trajectories.shape[0]
-
-        # IRL log likelihood gradient w.r.t reward. Corresponds to line 9 of Algorithm 2 from the MaxCausalEnt IRL
-        # paper http://www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. Refer to the Note in this function.
-        # Minus sign to get the gradient of negative log likelihood, which we then minimize with GD.
-        dL_dr = -(mean_s_visit_count - D)
-
-        # Gradient descent
-        r = r - learning_rate * dL_dr
-
-        print('Epoch: ',i, 'log likelihood of all traj: ', L, 
-            'average per traj step: ', L/(trajectories.shape[0] * trajectories.shape[1]))
-    return r
 
 
 def main():
