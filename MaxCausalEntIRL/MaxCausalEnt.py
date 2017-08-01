@@ -229,8 +229,6 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
         of taking action a in state s.
     """
 
-    if r is None and V is None: 
-        raise Exception('Cannot compute V: no reward provided')
     if V is None: 
         V = compute_value_boltzmann(mdp, gamma, r, horizon, threshold)
 
