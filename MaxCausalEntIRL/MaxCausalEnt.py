@@ -392,10 +392,10 @@ def main():
     sa_visit_count, _ = compute_s_a_visitations(mdp1, gamma, trajectories1)
     print('Log likelihood of all traj under the policy generated', 
           'from the original reward: ', 
-        np.sum(sa_visit_count * np.log(policy1)), 
-        'average per traj step: ', 
-        np.sum(sa_visit_count * np.log(policy1)) / 
-                    (trajectories1.shape[0] * trajectories1.shape[1]), '\n' )
+          np.sum(sa_visit_count * np.log(policy1)), 
+          'average per traj step: ', 
+          np.sum(sa_visit_count * np.log(policy1)) / 
+                (trajectories1.shape[0] * trajectories1.shape[1]), '\n' )
 
     r = np.random.rand(mdp1.nS)
     print('Randomly initialized reward: ',r)
