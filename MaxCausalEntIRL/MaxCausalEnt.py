@@ -326,7 +326,8 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
         V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
         policy = compute_policy(mdp, gamma, r=r, V=V) 
         
-        # IRL log likelihood term
+        # IRL log likelihood term: 
+        # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
         L = np.sum(sa_visit_count * np.log(policy))
         
         D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
