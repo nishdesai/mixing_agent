@@ -283,7 +283,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     """
     Finds the reward vector that maximizes the log likelihood of the expert trajectories via gradient descent.
     
-    The gradient is the difference between the empirical state visitation frequencies computed from the 
+    The gradient is the difference between the empirical state visitation counts computed from the 
     expert trajectories and the occupancy measure of the MDP under a policy induced by the reward vector.
 
     State features are assumed to be one-hot encodings of the state.
