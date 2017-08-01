@@ -223,8 +223,8 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
 
 def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
     """
-    Computes occupancy measure of a MDP under a given policy -- 
-    the expected discounted number of times that policy π visits state s.
+    Computes occupancy measure of a MDP under a given time-constrained policy -- 
+    the expected number of times that policy π visits state s in a given number of timesteps.
     
     Described in Algorithm 9.3 of Ziebart's PhD thesis 
     http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
@@ -241,6 +241,10 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
         i-th element is the probability that the trajectory will start in state i.
     t_max : int
         number of timesteps the policy is executed.
+
+    Returns
+    -------
+    1D numpy array of shape (mdp.nS)
     """
     assert policy.shape == (mdp.nS, mdp.nA)   
     assert np.sum(np.isnan(policy)) == 0
