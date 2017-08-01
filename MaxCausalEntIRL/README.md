@@ -5,5 +5,6 @@ Python implementation of Maximum Causal Entropy Inverse Reinforcement Learning f
 Main file: MaxCausalEnt.py
 
 Work in progress. Current TODOs:
-1) Boltzmann policy value iteration: initialize with V = reward
+1) Boltzmann policy value iteration: initialize with V = reward; resolve numerical problems that follow.
+2) Support for state features other than one-hot encodings of the state.
 
