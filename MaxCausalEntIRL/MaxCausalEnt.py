@@ -49,7 +49,8 @@ class MDP(object):
 def softmax(x1,x2):
     """ 
     Numerically stable computation of log(exp(x1) + exp(x2))
-    described in Algorithm 9.2 of Ziebart's PhD thesis http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
+    described in Algorithm 9.2 of Ziebart's PhD thesis 
+    http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
 
     Note that softmax(softmax(x1,x2), x3) = log(exp(x1) + exp(x2) + exp(x3))
     """
@@ -60,7 +61,8 @@ def softmax(x1,x2):
 def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     """
     Find the optimal value function via value iteration with the max-ent Bellman backup 
-    given at Algorithm 9.1 in Ziebart's PhD thesis http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
+    given at Algorithm 9.1 in Ziebart's PhD thesis 
+    http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
 
     Parameters
     ----------
@@ -151,7 +153,6 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
             policy[s,a] = np.exp(r[s] + np.dot(mdp.T[s, a,:], gamma * V) - V[s] )
     
     # Hack for finite horizon length to make the probabilities sum to 1:
-    # print(np.sum(policy, axis=1))
     policy = policy / np.sum(policy, axis=1).reshape((mdp.nS, 1))
 
     if np.sum(np.isnan(policy)) > 0: raise Exception('NaN encountered in policy')
@@ -159,13 +160,16 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
     return policy
 
 
-def generate_trajectories(mdp, policy, T=20, num_traj=50):
+def generate_trajectories(mdp, policy, timesteps=20, num_traj=50):
+    """
+    Generates trajectories in the MDP given a policy.
+    """
     s = mdp.env.reset()
     
-    trajectories = np.zeros([num_traj, T, 2]).astype(int)
+    trajectories = np.zeros([num_traj, timesteps, 2]).astype(int)
     
     for d in range(num_traj):
-        for t in range(T):
+        for t in range(timesteps):
             action = np.random.choice(range(mdp.nA), p=policy[s, :])
             trajectories[d, t, :] = [s, action]
             s, _, _, _ = mdp.env.step(action)
@@ -222,7 +226,8 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
     Computes occupancy measure of a MDP under a given policy -- 
     the expected discounted number of times that policy π visits state s.
     
-    Described in Algorithm 9.3 of Ziebart's PhD thesis http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
+    Described in Algorithm 9.3 of Ziebart's PhD thesis 
+    http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
 
     Parameters
     ----------
@@ -256,8 +261,8 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
                 # Line 9 of Algorithm 9.3:
                 # for all s_prime reachable from s by taking a do:
                 for p_sprime, s_prime, _ in mdp.P[s][a]:
-                    # Line 10 of Algorithm 9.3, added gamma:
-                    D[s_prime] += (policy[s, a] * ( gamma * p_sprime * D_prev[s]))
+                    # Line 10 of Algorithm 9.3:
+                    D[s_prime] += D_prev[s] * policy[s, a] * p_sprime
 
         diff = np.amax(abs(D_prev - D))    
         D_prev = np.copy(D)
@@ -277,7 +282,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     The gradient is the difference between the empirical state visitation frequencies computed from the 
     expert trajectories and the occupancy measure of the MDP under a policy induced by the reward vector.
 
-    Features are assumed to be one-hot encodings of the state.
+    State features are assumed to be one-hot encodings of the state.
 
     Parameters
     ----------
@@ -315,16 +320,17 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
         # IRL log likelihood term
         L = np.sum(sa_visit_count * np.log(policy))
         
-        # IRL log likelihood gradient w.r.t reward, inverted for descent
         D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
 
-        # Minus sign to get the gradient of negative log likelihood, which we then minimize wiht GD
+        # IRL log likelihood gradient w.r.t reward.
+        # Minus sign to get the gradient of negative log likelihood, which we then minimize with GD.
         dL_dr = -(np.sum(sa_visit_count,1) / trajectories.shape[0] - D)
 
         # Gradient descent
         r = r - learning_rate * dL_dr
 
-        print('Epoch: ',i, 'log likelihood of all traj: ', L, 'average per traj step: ', L/(trajectories.shape[0] * trajectories.shape[1]))
+        print('Epoch: ',i, 'log likelihood of all traj: ', L, 
+            'average per traj step: ', L/(trajectories.shape[0] * trajectories.shape[1]))
 
     return r
 
@@ -347,12 +353,14 @@ def main():
     print('Reward used to generate expert trajectories: ', r1)
 
     policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=horizon)
-    trajectories1 = generate_trajectories(mdp1, policy1, T=traj_len, num_traj=200)
+    trajectories1 = generate_trajectories(mdp1, policy1, timesteps=traj_len, num_traj=200)
     print('Generated ', trajectories1.shape[0],' trajectories of length ', traj_len)
 
     sa_visit_count, _ = compute_s_a_visitations(mdp1, gamma, trajectories1)
-    print('Log likelihood of the trajectories under the policy generated from the original reward: ', np.sum(sa_visit_count * np.log(policy1)), 
-        'average per traj step: ', np.sum(sa_visit_count * np.log(policy1)) / (trajectories1.shape[0] * trajectories1.shape[1]), '\n' )
+    print('Log likelihood of the trajectories under the policy generated from the original reward: ', 
+        np.sum(sa_visit_count * np.log(policy1)), 
+        'average per traj step: ', 
+        np.sum(sa_visit_count * np.log(policy1)) / (trajectories1.shape[0] * trajectories1.shape[1]), '\n' )
 
     r = np.random.rand(mdp1.nS)
     print('Randomly initialized reward: ',r)
