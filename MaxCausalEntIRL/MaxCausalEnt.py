@@ -1,5 +1,5 @@
 from frozen_lake import *
-import numpy as np, numpy.random as nr, gym
+import numpy as np, gym
 from gym.spaces import prng
 
 class MDP(object):
@@ -103,7 +103,8 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
                     V[s] = r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)  
                 else:
                     # V[s] = log(   exp(V[s]) + exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'})   )
-                    V[s] = softmax(V[s], r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev))
+                    V[s] = softmax(V[s], 
+                                   r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev))
             
                 if np.sum(np.isnan(V[s])) > 0: 
                     raise Exception('NaN encountered in value, iteration ', t, 'state',s, ' action ', a)
@@ -349,8 +350,6 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
 
 
 def main():
-
-
     learning_rate = 0.1
     epochs = 20
     
@@ -370,7 +369,7 @@ def main():
     print('Generated ', trajectories1.shape[0],' trajectories of length ', traj_len)
 
     sa_visit_count, _ = compute_s_a_visitations(mdp1, gamma, trajectories1)
-    print('Log likelihood of the trajectories under the policy generated from the original reward: ', 
+    print('Log likelihood of all trajectories under the policy generated from the original reward: ', 
         np.sum(sa_visit_count * np.log(policy1)), 
         'average per traj step: ', 
         np.sum(sa_visit_count * np.log(policy1)) / (trajectories1.shape[0] * trajectories1.shape[1]), '\n' )
