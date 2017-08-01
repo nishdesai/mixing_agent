@@ -17,6 +17,7 @@ class MDP(object):
         self.P[state][action] is a list of tuples (probability, nextstate, reward).
     self.T : 3D numpy array
         The transition probability matrix of the MDP. p(s'|s,a) = self.T[s,a,s']
+
     """
     def __init__(self, env):
         P, nS, nA, desc = MDP.env2mdp(env)
@@ -175,15 +176,15 @@ def generate_trajectories(mdp, policy, T=20, num_traj=50):
 
 def compute_s_a_visitations(mdp, gamma, trajectories):
     """
-    Computes the empirical state and state-action visitation frequencies from 
-    the expert trajectories
+    Computes the empirical state-action visitation counts and the probability that the 
+    trajectory will start in state s from the expert trajectories.
     
-    Empirical state-action visitation frequencies:
+    Empirical state-action visitation counts:
     sa_visit_count[s,a] = \sum_{i,t} 1_{traj_s_{i,t} = s \wedge traj_a_{i,t} = a}
 
-    P_0(s) for initialization of the algorithm computing the occupancy measure 
-    of a MDP under a given policy:
+    P_0(s) -- probability that the trajectory will start in state s. 
     P_0[s] = \sum_{i,t} 1_{t = 0 \wedge traj_s_{i,t} = s}  / i
+    Used in computing the occupancy measure of a MDP under a given policy.
 
     Parameters
     ----------
@@ -216,26 +217,33 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
     return(sa_visit_count, P_0)
 
 
-def compute_D(mdp, gamma, V, policy, P_0=None, horizon=None, D_prev = None, threshold = 1e-6):
+def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
     """
     Computes occupancy measure of a MDP under a given policy -- 
     the expected discounted number of times that policy π visits state s.
     
     Described in Algorithm 9.3 of Ziebart's PhD thesis http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
+
+    Parameters
+    ----------
+    mdp : object
+        Instance of the MDP class.
+    gamma : float 
+        Discount factor; 0<=gamma<=1.
+    policy : 2D numpy array
+        policy[s,a] is the probability of taking action a in state s.
+    P_0 : 1D numpy array of shape (mdp.nS)
+        i-th element is the probability that the trajectory will start in state i.
+    t_max : int
+        number of timesteps the policy is executed.
     """
-    assert V.shape[0] == mdp.nS
     assert policy.shape == (mdp.nS, mdp.nA)   
-    
-    assert np.sum(np.isnan(V)) == 0
     assert np.sum(np.isnan(policy)) == 0
         
-
     if P_0 is None: P_0 = np.ones(mdp.nS) / mdp.nS
-    if D_prev is None: D_prev = np.copy(P_0)     
+    D_prev = np.copy(P_0)     
     
     t = 1
-    
-
     diff = float("inf")
     while diff > threshold:
         
@@ -254,9 +262,9 @@ def compute_D(mdp, gamma, V, policy, P_0=None, horizon=None, D_prev = None, thre
         diff = np.amax(abs(D_prev - D))    
         D_prev = np.copy(D)
         
-        if horizon is not None:
+        if t_max is not None:
             t+=1
-            if t==horizon: break
+            if t==t_max: break
     
     if np.sum(np.isnan(D_prev)) > 0: raise Exception('NaN encountered in occupancy measure')
     return D
@@ -268,6 +276,8 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     
     The gradient is the difference between the empirical state visitation frequencies computed from the 
     expert trajectories and the occupancy measure of the MDP under a policy induced by the reward vector.
+
+    Features are assumed to be one-hot encodings of the state.
 
     Parameters
     ----------
@@ -291,11 +301,9 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
     -------
     1D numpy array
         Reward vector computed with Maximum Causal Entropy algorithm from the expert trajectories.
-    """
+    """    
 
-    
-
-    sa_visit_count, init_s = compute_s_a_visitations(mdp, gamma, trajectories)
+    sa_visit_count, P_0 = compute_s_a_visitations(mdp, gamma, trajectories)
     
     if r is None:
         r = np.random.rand(mdp.nS)
@@ -308,7 +316,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
         L = np.sum(sa_visit_count * np.log(policy))
         
         # IRL log likelihood gradient w.r.t reward, inverted for descent
-        D = compute_D(mdp, gamma, V, policy, init_s, horizon=trajectories.shape[1])        
+        D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
 
         # Minus sign to get the gradient of negative log likelihood, which we then minimize wiht GD
         dL_dr = -(np.sum(sa_visit_count,1) / trajectories.shape[0] - D)
@@ -322,6 +330,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, r 
 
 
 def main():
+
 
     learning_rate = 0.1
     epochs = 20
