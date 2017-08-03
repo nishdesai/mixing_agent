@@ -166,11 +166,7 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
         the reward r and Boltzmann policy.
     """
     
-    V = np.zeros(mdp.nS)
-    
-    # Running into numerical problems with r= [[0]*63, 1] for some reason. 
-    # Critch, check this out?
-    V = r * .99999
+    V = np.copy(r)
 
     t = 0
     diff = float("inf")
