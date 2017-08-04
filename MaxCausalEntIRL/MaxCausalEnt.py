@@ -185,6 +185,7 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
                 else:
                     # V[s] = log(exp(V[s]) 
                     #          + exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}))
+                    # Note that softmax(softmax(x1,x2), x3) = log(exp(x1) + exp(x2) + exp(x3))
                     V[s] = softmax(V[s], 
                                    r[s] + gamma*np.dot(mdp.T[s, a, :], V_prev))
             
