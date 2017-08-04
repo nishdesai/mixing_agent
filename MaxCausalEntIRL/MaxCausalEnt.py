@@ -1,5 +1,6 @@
 from frozen_lake import *
-import numpy as np, gym
+import numpy as np 
+import gym
 from gym.spaces import prng
 
 def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, 
