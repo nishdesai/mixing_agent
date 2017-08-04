@@ -2,16 +2,20 @@ from frozen_lake import *
 import numpy as np 
 import gym
 from gym.spaces import prng
+import math
 
 def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, 
-                       r = None, horizon=None):
+                       r = None, horizon=None, k=math.e):
     """
-    Finds the reward vector that maximizes the log likelihood of the expert 
-    trajectories via gradient descent.
+    Finds a reward vector that maximizes the log likelihood of the given expert 
+    trajectories, modelling the expert as a Boltzmann rational agent with the 
+    given temperature. By [citation], this is equivalent to finding a reward 
+    vector giving rise to a Boltzmann rational policy whose expected state 
+    visitation count matches the visitation counts of the given expert trajectories.
     
-    The gradient is the difference between the mean empirical state visitation 
-    counts computed from the expert trajectories and the occupancy measure of 
-    the MDP under a policy induced by the reward vector.
+    The gradient is the difference between the mean state visitation counts 
+    computed from the expert trajectories and the occupancy measure of the MDP 
+    under a policy induced by the reward vector.
 
     Parameters
     ----------
@@ -35,14 +39,6 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
     1D numpy array
         Reward vector computed with Maximum Causal Entropy algorithm from 
         the expert trajectories.
-
-    Note
-    -------
-    Following the Levine implementation, the state features are assumed to 
-    be one-hot encodings of the state. If this is not the case, reward 
-    would have to have the shape (feature.shape[0]), and the gradient of the 
-    IRL log likelihood would be a dot product of the current expression 
-    for dL_dr and the feature matrix.
     """    
 
     # Compute the empirical state-action visitation counts and the probability 
@@ -53,7 +49,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
         r = np.random.rand(mdp.nS)
 
     for i in range(epochs):
-        V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon)
+        V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon, k = k)
         
         # Compute the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s) 
         policy = compute_policy(mdp, gamma, r=r, V=V) 
@@ -128,7 +124,7 @@ class MDP(object):
         return T
 
 
-def softmax(x1,x2):
+def softmax(x1,x2, k = math.e):
     """ 
     Numerically stable computation of log(exp(x1) + exp(x2))
     described in Algorithm 9.2 of Ziebart's PhD thesis 
@@ -138,9 +134,10 @@ def softmax(x1,x2):
     """
     max_x = np.amax((x1,x2))
     min_x = np.amin((x1,x2))
-    return max_x + np.log(1+np.exp(min_x - max_x))
+    return max_x + math.log((1+np.exp(k*(min_x - max_x))), np.exp(k))
 
-def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
+
+def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4, k = math.e):
     """
     Find the optimal value function via value iteration with the max-ent 
     Bellman backup given at Algorithm 9.1 in Ziebart's PhD thesis 
@@ -186,8 +183,8 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
                     # V[s] = log(exp(V[s]) 
                     #          + exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}))
                     # Note that softmax(softmax(x1,x2), x3) = log(exp(x1) + exp(x2) + exp(x3))
-                    V[s] = softmax(V[s], 
-                                   r[s] + gamma*np.dot(mdp.T[s, a, :], V_prev))
+                    V[s] = softmax(V[s],
+                                   r[s] + gamma*np.dot(mdp.T[s, a, :], V_prev), k = k)
             
                 if np.sum(np.isnan(V[s])) > 0: 
                     raise Exception('NaN encountered in value, iteration ', 
@@ -201,7 +198,7 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4):
     return V
 
 
-def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
+def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4, k = math.e):
     """
     Computes the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s).
     
@@ -228,13 +225,13 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4):
     """
 
     if V is None: 
-        V = compute_value_boltzmann(mdp, gamma, r, horizon, threshold)
+        V = compute_value_boltzmann(mdp, gamma, r, horizon, threshold, k)
 
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
             # This is exp(Q_{s,a} - V_s)
-            policy[s,a] = np.exp(r[s] + np.dot(mdp.T[s, a,:], gamma*V) - V[s])
+            policy[s,a] = np.exp(k * (r[s] + np.dot(mdp.T[s, a,:], gamma*V) - V[s]))
     
     # Hack for finite horizon length to make the probabilities sum to 1:
     policy = policy / np.sum(policy, axis=1).reshape((mdp.nS, 1))
@@ -265,10 +262,10 @@ def generate_trajectories(mdp, policy, timesteps=20, num_traj=50):
 
 def compute_s_a_visitations(mdp, gamma, trajectories):
     """
-    Computes the empirical state-action visitation counts and the probability 
+    Computes the state-action visitation counts and the probability 
     of a trajectory starting in state s from the expert trajectories.
     
-    Empirical state-action visitation counts:
+    State-action visitation counts:
     sa_visit_count[s,a] = \sum_{i,t} 1_{traj_s_{i,t} = s AND traj_a_{i,t} = a}
 
     P_0(s) -- probability that the trajectory will start in state s. 
@@ -374,7 +371,8 @@ def main():
 
     env = FrozenLakeEnvMultigoal(goal=2)
     env.seed(0);  prng.seed(10)
-    mdp1 = MDP(FrozenLakeEnvMultigoal(is_slippery=False, goal=1))
+    mdp1 = MDP(FrozenLakeEnvMultigoal(is_slippery=False, goal=1))    
+
     r1 = np.zeros(mdp1.nS)
     r1[-1] = 1
     print('Reward used to generate expert trajectories: ', r1)
