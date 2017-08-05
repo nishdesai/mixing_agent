@@ -125,22 +125,21 @@ class MDP(object):
         return T
 
 
-def softmax_2_arg(x1,x2):
-    """ 
-    Numerically stable computation of log(exp(x1) + exp(x2))
-    described in Algorithm 9.2 of Ziebart's PhD thesis 
-    http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
-    """
-    max_x = np.amax((x1,x2))
-    min_x = np.amin((x1,x2))
-    return max_x + np.log(1+np.exp((min_x - max_x)))
-
-
 def softmax(x):
     '''
     Computes log(\sum_i exp(x_i))
     '''
     if x.shape[0] == 1: return x
+    
+    def softmax_2_arg(x1,x2):
+        """ 
+        Numerically stable computation of log(exp(x1) + exp(x2))
+        described in Algorithm 9.2 of Ziebart's PhD thesis 
+        http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
+        """
+        max_x = np.amax((x1,x2))
+        min_x = np.amin((x1,x2))
+        return max_x + np.log(1+np.exp((min_x - max_x)))
     
     sm = softmax_2_arg(x[0],x[1])
     # Use the following property of softmax_2_arg:
@@ -199,12 +198,12 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4,
             V[s] = softmax(Q[s,:])
             
             if np.sum(np.isnan(V[s])) > 0: 
-                raise Exception('NaN encountered in value, iteration ', 
-                                    t, 'state',s, ' action ', a)
+                raise Exception('NaN encountered in VI, t=',t, 's=',s)
         
         # Normalize
         Q = Q - V.mean()
         V = V - V.mean()
+        print(V)
 
         diff = np.amax(abs(V_prev - V))
         
@@ -214,8 +213,8 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4,
     return (V, Q)
 
 
-def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None, threshold=1e-4, 
-                   temperature = 1):
+def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None, 
+                   threshold=1e-4, temperature = 1):
     """
     Computes the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s).
     
@@ -380,11 +379,11 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
 
 
 def main():
-    temp_exp = 0.8
-    temp_irl = 0.9
+    temp_exp = 1
+    temp_irl = 1
     
     learning_rate = 0.1
-    epochs = 50
+    epochs = 30
     
     gamma = 1
     horizon = 200
