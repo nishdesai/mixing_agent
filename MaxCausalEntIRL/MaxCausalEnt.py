@@ -201,7 +201,11 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4,
             if np.sum(np.isnan(V[s])) > 0: 
                 raise Exception('NaN encountered in value, iteration ', 
                                     t, 'state',s, ' action ', a)
-                        
+        
+        # Normalize
+        Q = Q - V.mean()
+        V = V - V.mean()
+
         diff = np.amax(abs(V_prev - V))
         
         t+=1
@@ -376,11 +380,11 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
 
 
 def main():
-    temp_exp = 3
-    temp_irl = 1
+    temp_exp = 0.8
+    temp_irl = 0.9
     
     learning_rate = 0.1
-    epochs = 20
+    epochs = 50
     
     gamma = 1
     horizon = 200
