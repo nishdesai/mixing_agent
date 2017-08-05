@@ -48,15 +48,16 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
         r = np.random.rand(mdp.nS)
 
     for i in range(epochs):
-        V = compute_value_boltzmann(mdp, gamma, r, horizon=horizon, 
-                                                   temperature=temperature)
+        V, Q = compute_value_boltzmann(mdp, gamma, r, horizon = horizon, 
+                                       temperature=temperature)
         
-        # Compute the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s) 
-        policy = compute_policy(mdp, gamma, r=r, V=V) 
+        # Compute the Boltzmann rational policy \pi_{s,a} = \exp(Q_{s,a} - V_s) 
+        policy = compute_policy(mdp, gamma, r, V, Q, horizon=horizon, 
+                                temperature=temperature) 
         
         # IRL log likelihood term: 
         # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
-        L = np.sum(sa_visit_count * np.log(policy))
+        L = np.sum(sa_visit_count * (Q - V.reshape((mdp.nS,1))))
         
         # The expected #times policy π visits state s in a given #timesteps.
         D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
@@ -124,17 +125,31 @@ class MDP(object):
         return T
 
 
-def softmax(x1,x2, temperature = 1):
+def softmax_2_arg(x1,x2):
     """ 
     Numerically stable computation of log(exp(x1) + exp(x2))
     described in Algorithm 9.2 of Ziebart's PhD thesis 
     http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
-
-    Note that softmax(softmax(x1,x2), x3) = log(exp(x1) + exp(x2) + exp(x3))
     """
-    max_x = np.amax((x1,x2)) /temperature
-    min_x = np.amin((x1,x2)) /temperature
+    max_x = np.amax((x1,x2))
+    min_x = np.amin((x1,x2))
     return max_x + np.log(1+np.exp((min_x - max_x)))
+
+
+def softmax(x):
+    '''
+    Computes log(\sum_i exp(x_i))
+    '''
+    if x.shape[0] == 1: return x
+    
+    sm = softmax_2_arg(x[0],x[1])
+    # Use the following property of softmax_2_arg:
+    # softmax_2_arg(softmax_2_arg(x1,x2),x3) = log(exp(x1) + exp(x2) + exp(x3))
+    # which is true since
+    # log(exp(log(exp(x1) + exp(x2))) + exp(x3)) = log(exp(x1) + exp(x2) + exp(x3))
+    for (i,x_i) in enumerate(x):
+        if i>1: sm = softmax_2_arg(sm, x_i)
+    return sm
 
 
 def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4, 
@@ -163,34 +178,28 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4,
     1D numpy array
         Array of shape (mdp.nS), each V[s] is the value of state s under 
         the reward r and Boltzmann policy.
+    2D numpy array
+        Array of shape (mdp.nS, mdp.nA), each Q[s,a] is the value of 
+        state-action pair [s,a] under the reward r and Boltzmann policy.
     """
     
     V = np.copy(r)
+    Q = np.tile(r, (mdp.nA,1)).T
 
     t = 0
     diff = float("inf")
     while diff > threshold:
         V_prev = np.copy(V)
         for s in range(mdp.nS):
-            # V_s_new = \log[\sum_a exp(r_s + gamma \sum_{s'} p(s'|s,a)V_{s'})]
             for a in range(mdp.nA):
-                # If-else statement is used to compute softmax correctly. 
-                # If V[s] is initialized as 0 and only the expression from 
-                # 'else' is used, there would be an additional e^0 in the sum.
-                if a == 0:
-                    # V[s] = r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}
-                    V[s] = r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)  
-                else:
-                    # V[s] = log(exp(V[s]) 
-                    #          + exp(r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}))
-                    # Note that softmax(softmax(x1,x2), x3) 
-                    #           = log(exp(x1) + exp(x2) + exp(x3))
-                    V[s] = softmax(V[s],
-                                   r[s] + gamma*np.dot(mdp.T[s, a, :], V_prev), 
-                                   temperature)
+                # Q[s,a] = (r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}) / temperature
+                Q[s,a] = (r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)) / temperature
             
-                if np.sum(np.isnan(V[s])) > 0: 
-                    raise Exception('NaN encountered in value, iteration ', 
+            # V_s = \log(\sum_a exp(Q_sa))    
+            V[s] = softmax(Q[s,:])
+            
+            if np.sum(np.isnan(V[s])) > 0: 
+                raise Exception('NaN encountered in value, iteration ', 
                                     t, 'state',s, ' action ', a)
                         
         diff = np.amax(abs(V_prev - V))
@@ -198,10 +207,10 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4,
         t+=1
         if horizon is not None:
             if t==horizon: break
-    return V
+    return (V, Q)
 
 
-def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4, 
+def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None, threshold=1e-4, 
                    temperature = 1):
     """
     Computes the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s).
@@ -228,15 +237,15 @@ def compute_policy(mdp, gamma, r=None, V=None, horizon=None, threshold=1e-4,
         of taking action a in state s.
     """
 
-    if V is None: 
-        V = compute_value_boltzmann(mdp, gamma, r, horizon, 
+    if V is None or Q is None: 
+        V, Q = compute_value_boltzmann(mdp, gamma, r, horizon, 
                                     threshold, temperature)
 
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
-            Q_sa = r[s] + np.dot(mdp.T[s, a,:], gamma*V)
-            policy[s,a] = np.exp(Q_sa / temperature - V[s])
+            # This is exp(Q_{s,a} - V_s)
+            policy[s,a] = np.exp(Q[s,a] - V[s])
     
     # Hack for finite horizon length to make the probabilities sum to 1:
     policy = policy / np.sum(policy, axis=1).reshape((mdp.nS, 1))
@@ -367,6 +376,9 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
 
 
 def main():
+    temp_exp = 3
+    temp_irl = 1
+    
     learning_rate = 0.1
     epochs = 20
     
@@ -381,24 +393,27 @@ def main():
     r1 = np.zeros(mdp1.nS)
     r1[-1] = 1
     print('Reward used to generate expert trajectories: ', r1)
-
-    policy1 = compute_policy(mdp1, gamma, r1, threshold=1e-8, horizon=horizon)
+    
+    V1, Q1 = compute_value_boltzmann(mdp1, gamma, r1, horizon = horizon, 
+                                       temperature=temp_exp)
+    policy1 = compute_policy(mdp1, gamma, r1, V1, Q1, 
+                             threshold=1e-8, horizon=horizon)
     trajectories1 = generate_trajectories(mdp1, policy1, traj_len, 200)
     print('Generated ', trajectories1.shape[0],' traj of length ', traj_len)
 
     sa_visit_count, _ = compute_s_a_visitations(mdp1, gamma, trajectories1)
-    print('Log likelihood of all traj under the policy generated', 
-          'from the original reward: ', 
-          np.sum(sa_visit_count * np.log(policy1)), 
-          'average per traj step: ', 
-          np.sum(sa_visit_count * np.log(policy1)) / 
-                (trajectories1.shape[0] * trajectories1.shape[1]), '\n' )
+    #print('Log likelihood of all traj under the policy generated', 
+    #      'from the original reward: ', 
+    #      np.sum(sa_visit_count * (Q1 - V1.reshape((mdp1.nS,1)))), 
+    #      'average per traj step: ', 
+    #      np.sum(sa_visit_count * (Q1 - V1.reshape((mdp1.nS,1))) / 
+    #            (trajectories1.shape[0] * trajectories1.shape[1]), '\n' ))
 
     r = np.random.rand(mdp1.nS)
     print('Randomly initialized reward: ',r)
 
     r = max_causal_ent_irl(mdp1, gamma, trajectories1, epochs, learning_rate,
-                           r = r, horizon=horizon)
+                           r = r, horizon=horizon, temperature=temp_irl)
 
     print('Final reward: ', r)
 
