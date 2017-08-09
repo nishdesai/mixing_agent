@@ -397,9 +397,8 @@ def main(t_expert = 1,
     '''
     Demonstrates the usage of the implemented MaxCausalEnt IRL algorithm. 
     
-    First a number of expert trajectories of a given length is generated using 
-    a true reward giving rise to the Boltzmann rational expert policy with 
-    temperature t_exp. 
+    First a number of expert trajectories is generated using a true reward 
+    giving rise to the Boltzmann rational expert policy with temperature t_exp. 
     
     Hereafter the max_causal_ent_irl() function is used to find a reward vector
     that maximizes the log likelihood of the generated expert trajectories, 
@@ -442,7 +441,7 @@ def main(t_expert = 1,
     # Generate expert trajectories using the given expert policy.
     trajectories = generate_trajectories(mdp, policy_expert, traj_len, n_traj)
     
-    # Print various stats of the generated expert trajectories.
+    # Compute and print various stats of the generated expert trajectories.
     sa_visit_count, _ = compute_s_a_visitations(mdp, gamma, trajectories)
     print('Generated ', n_traj,' traj of length ', traj_len,
           '\n Log likelihood of all traj under the policy generated', 
