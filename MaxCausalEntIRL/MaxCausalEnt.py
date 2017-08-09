@@ -5,7 +5,7 @@ from gym.spaces import prng
 
 def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1, 
                        epochs=1, learning_rate=0.2, r = None):
-    """
+    '''
     Finds a reward vector that maximizes the log likelihood of the given expert 
     trajectories, modelling the expert as a Boltzmann rational agent with the 
     given temperature. By [citation], this is equivalent to finding a reward 
@@ -24,6 +24,8 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
         Instance of the MDP class.
     gamma : float 
         Discount factor; 0<=gamma<=1.
+    horizon : int
+        Horizon for the finite horizon version of value iteration.
     trajectories : 3D numpy array
         Expert trajectories. 
         Dimensions: [number of traj, timesteps in the traj, state and action].
@@ -33,14 +35,12 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
         Learning rate for gradient descent.
     r : 1D numpy array
         Initial reward vector with the length equal to the #states in the MDP.
-    horizon : int
-        Horizon for the finite horizon version of value iteration.
     Returns
     -------
     1D numpy array
         Reward vector computed with Maximum Causal Entropy algorithm from 
         the expert trajectories.
-    """    
+    '''    
     
     # Compute the state-action visitation counts and the probability 
     # of a trajectory starting in state s from the expert trajectories.
@@ -86,7 +86,7 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
 
 
 class MDP(object):
-    """
+    '''
     MDP object
 
     Attributes
@@ -100,7 +100,7 @@ class MDP(object):
         self.P[state][action] is a list of tuples (prob, nextstate, reward).
     self.T : 3D numpy array
         The transition prob matrix of the MDP. p(s'|s,a) = self.T[s,a,s']
-    """
+    '''
     def __init__(self, env):
         P, nS, nA, desc = MDP.env2mdp(env)
         self.P = P # state transition and reward probabilities, explained below
@@ -116,7 +116,7 @@ class MDP(object):
                 env.nS, env.nA, env.desc)
     
     def get_transition_matrix(self):
-        """Return a matrix with index S,A,S' -> P(S'|S,A)"""
+        '''Return a matrix with index S,A,S' -> P(S'|S,A)'''
         T = np.zeros([self.nS, self.nA, self.nS])
         for s in range(self.nS):
             for a in range(self.nA):
@@ -133,33 +133,33 @@ def softmax(x, t):
     Numerically stable computation of log(\sum_i exp(x_i))
     '''
     if x.shape[0] == 1: return x
-    
-    tlog = lambda x: t * np.log(x)
-    expt = lambda x: np.exp(1/t*x)
 
-    def softmax_2_arg(x1,x2):
-        """ 
+    def softmax_2_arg(x1,x2, t):
+        ''' 
         Numerically stable computation of log(exp(x1) + exp(x2))
         described in Algorithm 9.2 of Ziebart's PhD thesis 
         http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
-        """
+        '''
+        tlog = lambda x: t * np.log(x)
+        expt = lambda x: np.exp(1/t*x)
+        
         max_x = np.amax((x1,x2))
-        min_x = np.amin((x1,x2))
+        min_x = np.amin((x1,x2))    
         return max_x + tlog(1+expt((min_x - max_x)))
     
-    sm = softmax_2_arg(x[0],x[1])
+    sm = softmax_2_arg(x[0],x[1], t)
     # Use the following property of softmax_2_arg:
     # softmax_2_arg(softmax_2_arg(x1,x2),x3) = log(exp(x1) + exp(x2) + exp(x3))
     # which is true since
     # log(exp(log(exp(x1) + exp(x2))) + exp(x3)) = log(exp(x1) + exp(x2) + exp(x3))
     for (i,x_i) in enumerate(x):
-        if i>1: sm = softmax_2_arg(sm, x_i)
+        if i>1: sm = softmax_2_arg(sm, x_i, t)
     return sm
 
 
 def compute_value_boltzmann(mdp, gamma, r, horizon = None,  temperature=1, 
                             threshold=1e-4,):
-    """
+    '''
     Find the optimal value function via value iteration with the max-ent 
     Bellman backup given at Algorithm 9.1 in Ziebart's PhD thesis 
     http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
@@ -186,7 +186,7 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None,  temperature=1,
     2D numpy array
         Array of shape (mdp.nS, mdp.nA), each Q[s,a] is the value of 
         state-action pair [s,a] under the reward r and Boltzmann policy.
-    """
+    '''
     
     V = np.copy(r)
     Q = np.tile(r, (mdp.nA,1)).T
@@ -221,8 +221,8 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None,  temperature=1,
 
 def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None, 
                    threshold=1e-4, temperature = 1):
-    """
-    Computes the Boltzmann policy \pi_{s,a} = \exp(Q_{s,a} - V_s).
+    '''
+    Computes the Boltzmann rational policy \pi_{s,a} = exp(Q_{s,a} - V_s).
     
     Parameters
     ----------
@@ -244,7 +244,7 @@ def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None,
     2D numpy array
         Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability 
         of taking action a in state s.
-    """
+    '''
 
     if V is None or Q is None: 
         V, Q = compute_value_boltzmann(mdp, gamma, r, horizon, 
@@ -268,9 +268,9 @@ def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None,
 
 
 def generate_trajectories(mdp, policy, timesteps=20, num_traj=50):
-    """
+    '''
     Generates trajectories in the MDP given a policy.
-    """
+    '''
     s = mdp.env.reset()
     
     trajectories = np.zeros([num_traj, timesteps, 2]).astype(int)
@@ -286,7 +286,7 @@ def generate_trajectories(mdp, policy, timesteps=20, num_traj=50):
 
 
 def compute_s_a_visitations(mdp, gamma, trajectories):
-    """
+    '''
     Computes the state-action visitation counts and the probability 
     of a trajectory starting in state s from the expert trajectories.
     
@@ -311,7 +311,7 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
     -------
     (2D numpy array, 1D numpy array)
         Arrays of shape (mdp.nS, mdp.nA) and (mdp.nS).
-    """
+    '''
 
     s_0_count = np.zeros(mdp.nS)
     sa_visit_count = np.zeros((mdp.nS, mdp.nA))
@@ -329,7 +329,7 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
 
 
 def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
-    """
+    '''
     Computes occupancy measure of a MDP under a given time-constrained policy 
     -- the expected number of times that policy π visits state s in a given 
     number of timesteps.
@@ -353,7 +353,7 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
     Returns
     -------
     1D numpy array of shape (mdp.nS)
-    """
+    '''
 
     if P_0 is None: P_0 = np.ones(mdp.nS) / mdp.nS
     D_prev = np.copy(P_0)     
@@ -390,9 +390,9 @@ def main(t_expert = 1,
          t_irl = 1,
          gamma = 1,
          horizon = 40,
-         traj_len = 15,
          n_traj = 200,
-         learning_rate = 0.1,
+         traj_len = 15,
+         learning_rate = 0.5,
          epochs = 30):
     '''
     Demonstrates the usage of the implemented MaxCausalEnt IRL algorithm. 
@@ -408,13 +408,23 @@ def main(t_expert = 1,
     Parameters
     ----------
     t_expert : float
+        Temperature of the Boltzmann rational expert policy.
     t_irl : float
-    gamma : float
+        Temperature of the Boltzmann rational policy the IRL algorithm assumes
+        the expert followed when generating the trajectories.
+    gamma : float 
+        Discount factor; 0<=gamma<=1.
     horizon : int
-    traj_len : int
+        Horizon for the finite horizon version of value iteration subroutine of
+        MaxCausalEnt IRL algorithm.
     n_traj : int
+        Number of expert trajectories generated.
+    traj_len : int
+        Number of timesteps in each of the expert trajectories.
     learning_rate : float
+        Learning rate for gradient descent in the MaxCausalEnt IRL algorithm.
     epochs : int
+        Number of gradient descent steps in the MaxCausalEnt IRL algorithm.
     '''
 
     env = FrozenLakeEnvMultigoal(goal=2)
@@ -425,10 +435,14 @@ def main(t_expert = 1,
     r_expert = np.zeros(mdp.nS)
     r_expert[-1] = 1
     
+    # Compute the Boltzmann rational expert policy from the given true reward.
     V, Q = compute_value_boltzmann(mdp, gamma, r_expert, horizon, t_expert)
     policy_expert = compute_policy(mdp, gamma, r_expert, V, Q, horizon)
     
+    # Generate expert trajectories using the given expert policy.
     trajectories = generate_trajectories(mdp, policy_expert, traj_len, n_traj)
+    
+    # Print various stats of the generated expert trajectories.
     sa_visit_count, _ = compute_s_a_visitations(mdp, gamma, trajectories)
     print('Generated ', n_traj,' traj of length ', traj_len,
           '\n Log likelihood of all traj under the policy generated', 
@@ -439,6 +453,8 @@ def main(t_expert = 1,
           '\n Average reward per expert trajectory', 
           np.sum(np.sum(sa_visit_count, axis=1)*r_expert) / n_traj, '\n')
 
+    # Find a reward vector that maximizes the log likelihood of the generated 
+    # expert trajectories.
     r = max_causal_ent_irl(mdp, trajectories, gamma, horizon, t_irl, epochs, 
                            learning_rate)
     print('Final reward: ', r)
