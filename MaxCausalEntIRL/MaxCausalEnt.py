@@ -1,9 +1,10 @@
-from frozen_lake import *
 import numpy as np 
+from frozen_lake import FrozenLakeEnvMultigoal
 from gym.spaces import prng
 
-def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2, 
-                       r = None, horizon=None, temperature=1):
+
+def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1, 
+                       epochs=1, learning_rate=0.2, r = None):
     """
     Finds a reward vector that maximizes the log likelihood of the given expert 
     trajectories, modelling the expert as a Boltzmann rational agent with the 
@@ -12,7 +13,8 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
     visitation count matches the visitation counts of the given expert 
     trajectories.
     
-    The gradient is the difference between the mean state visitation counts 
+    The gradient of the log likelihood of the expert trajectories w.r.t the 
+    reward is the difference between the mean state visitation counts 
     computed from the expert trajectories and the occupancy measure of the MDP 
     under a policy induced by the reward vector.
 
@@ -39,7 +41,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
         Reward vector computed with Maximum Causal Entropy algorithm from 
         the expert trajectories.
     """    
-
+    
     # Compute the state-action visitation counts and the probability 
     # of a trajectory starting in state s from the expert trajectories.
     sa_visit_count, P_0 = compute_s_a_visitations(mdp, gamma, trajectories)
@@ -57,7 +59,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
         
         # IRL log likelihood term: 
         # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
-        L = np.sum(sa_visit_count * (Q - V.reshape((mdp.nS,1))))
+        L = np.sum(sa_visit_count * (Q - V))
         
         # The expected #times policy π visits state s in a given #timesteps.
         D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
@@ -79,6 +81,7 @@ def max_causal_ent_irl(mdp, gamma, trajectories, epochs=1, learning_rate=0.2,
         print('Epoch: ',i, 'log likelihood of all traj: ', L, 
             'average per traj step: ', 
             L/(trajectories.shape[0] * trajectories.shape[1]))
+        
     return r
 
 
@@ -125,12 +128,15 @@ class MDP(object):
         return T
 
 
-def softmax(x):
+def softmax(x, t):
     '''
-    Computes log(\sum_i exp(x_i))
+    Numerically stable computation of log(\sum_i exp(x_i))
     '''
     if x.shape[0] == 1: return x
     
+    tlog = lambda x: t * np.log(x)
+    expt = lambda x: np.exp(1/t*x)
+
     def softmax_2_arg(x1,x2):
         """ 
         Numerically stable computation of log(exp(x1) + exp(x2))
@@ -139,7 +145,7 @@ def softmax(x):
         """
         max_x = np.amax((x1,x2))
         min_x = np.amin((x1,x2))
-        return max_x + np.log(1+np.exp((min_x - max_x)))
+        return max_x + tlog(1+expt((min_x - max_x)))
     
     sm = softmax_2_arg(x[0],x[1])
     # Use the following property of softmax_2_arg:
@@ -151,8 +157,8 @@ def softmax(x):
     return sm
 
 
-def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4, 
-                            temperature=1):
+def compute_value_boltzmann(mdp, gamma, r, horizon = None,  temperature=1, 
+                            threshold=1e-4,):
     """
     Find the optimal value function via value iteration with the max-ent 
     Bellman backup given at Algorithm 9.1 in Ziebart's PhD thesis 
@@ -175,7 +181,7 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4,
     Returns
     -------
     1D numpy array
-        Array of shape (mdp.nS), each V[s] is the value of state s under 
+        Array of shape (mdp.nS, 1), each V[s] is the value of state s under 
         the reward r and Boltzmann policy.
     2D numpy array
         Array of shape (mdp.nS, mdp.nA), each Q[s,a] is the value of 
@@ -192,25 +198,25 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None, threshold=1e-4,
         for s in range(mdp.nS):
             for a in range(mdp.nA):
                 # Q[s,a] = (r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}) / temperature
-                Q[s,a] = (r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)) / temperature
+                Q[s,a] = (r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev))
             
-            # V_s = \log(\sum_a exp(Q_sa))    
-            V[s] = softmax(Q[s,:])
+            # V_s = log(\sum_a exp(Q_sa))    
+            V[s] = softmax(Q[s,:], temperature)
             
             if np.sum(np.isnan(V[s])) > 0: 
                 raise Exception('NaN encountered in VI, t=',t, 's=',s)
         
         # Normalize
-        Q = Q - V.mean()
-        V = V - V.mean()
-        print(V)
+        #Q = Q - V.mean()
+        #V = V - V.mean()
 
         diff = np.amax(abs(V_prev - V))
         
         t+=1
         if horizon is not None:
             if t==horizon: break
-    return (V, Q)
+
+    return V.reshape((mdp.nS, 1)), Q
 
 
 def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None, 
@@ -243,12 +249,14 @@ def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None,
     if V is None or Q is None: 
         V, Q = compute_value_boltzmann(mdp, gamma, r, horizon, 
                                     threshold, temperature)
-
+    
+    expt = lambda x: np.exp(1/temperature*x)
+    
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
             # This is exp(Q_{s,a} - V_s)
-            policy[s,a] = np.exp(Q[s,a] - V[s])
+            policy[s,a] = expt(Q[s,a] - V[s])
     
     # Hack for finite horizon length to make the probabilities sum to 1:
     policy = policy / np.sum(policy, axis=1).reshape((mdp.nS, 1))
@@ -317,7 +325,7 @@ def compute_s_a_visitations(mdp, gamma, trajectories):
     # Count into probability        
     P_0 = s_0_count / trajectories.shape[0]
     
-    return(sa_visit_count, P_0)
+    return sa_visit_count, P_0
 
 
 def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
@@ -378,46 +386,61 @@ def compute_D(mdp, gamma, policy, P_0=None, t_max=None, threshold = 1e-6):
     return D
 
 
-def main():
-    temp_exp = 1
-    temp_irl = 1
+def main(t_expert = 1,
+         t_irl = 1,
+         gamma = 1,
+         horizon = 40,
+         traj_len = 15,
+         n_traj = 200,
+         learning_rate = 0.1,
+         epochs = 30):
+    '''
+    Demonstrates the usage of the implemented MaxCausalEnt IRL algorithm. 
     
-    learning_rate = 0.1
-    epochs = 30
+    First a number of expert trajectories of a given length is generated using 
+    a true reward giving rise to the Boltzmann rational expert policy with 
+    temperature t_exp. 
     
-    gamma = 1
-    horizon = 200
-    traj_len = 15
+    Hereafter the max_causal_ent_irl() function is used to find a reward vector
+    that maximizes the log likelihood of the generated expert trajectories, 
+    modelling the expert as a Boltzmann rational agent with temperature t_irl.
+    
+    Parameters
+    ----------
+    t_expert : float
+    t_irl : float
+    gamma : float
+    horizon : int
+    traj_len : int
+    n_traj : int
+    learning_rate : float
+    epochs : int
+    '''
 
     env = FrozenLakeEnvMultigoal(goal=2)
-    env.seed(0);  prng.seed(10)
-    mdp1 = MDP(FrozenLakeEnvMultigoal(is_slippery=False, goal=1))    
+    env.seed(0);  prng.seed(0); np.random.seed(0)
+    mdp = MDP(FrozenLakeEnvMultigoal(is_slippery=False, goal=1))    
 
-    r1 = np.zeros(mdp1.nS)
-    r1[-1] = 1
-    print('Reward used to generate expert trajectories: ', r1)
+    # The true reward 
+    r_expert = np.zeros(mdp.nS)
+    r_expert[-1] = 1
     
-    V1, Q1 = compute_value_boltzmann(mdp1, gamma, r1, horizon = horizon, 
-                                       temperature=temp_exp)
-    policy1 = compute_policy(mdp1, gamma, r1, V1, Q1, 
-                             threshold=1e-8, horizon=horizon)
-    trajectories1 = generate_trajectories(mdp1, policy1, traj_len, 200)
-    print('Generated ', trajectories1.shape[0],' traj of length ', traj_len)
+    V, Q = compute_value_boltzmann(mdp, gamma, r_expert, horizon, t_expert)
+    policy_expert = compute_policy(mdp, gamma, r_expert, V, Q, horizon)
+    
+    trajectories = generate_trajectories(mdp, policy_expert, traj_len, n_traj)
+    sa_visit_count, _ = compute_s_a_visitations(mdp, gamma, trajectories)
+    print('Generated ', n_traj,' traj of length ', traj_len,
+          '\n Log likelihood of all traj under the policy generated', 
+          'from the true reward: ', 
+          np.sum(sa_visit_count * (Q - V)), 
+          'average per traj step: ', 
+          np.sum(sa_visit_count * (Q - V)) / (n_traj * traj_len), 
+          '\n Average reward per expert trajectory', 
+          np.sum(np.sum(sa_visit_count, axis=1)*r_expert) / n_traj, '\n')
 
-    sa_visit_count, _ = compute_s_a_visitations(mdp1, gamma, trajectories1)
-    #print('Log likelihood of all traj under the policy generated', 
-    #      'from the original reward: ', 
-    #      np.sum(sa_visit_count * (Q1 - V1.reshape((mdp1.nS,1)))), 
-    #      'average per traj step: ', 
-    #      np.sum(sa_visit_count * (Q1 - V1.reshape((mdp1.nS,1))) / 
-    #            (trajectories1.shape[0] * trajectories1.shape[1]), '\n' ))
-
-    r = np.random.rand(mdp1.nS)
-    print('Randomly initialized reward: ',r)
-
-    r = max_causal_ent_irl(mdp1, gamma, trajectories1, epochs, learning_rate,
-                           r = r, horizon=horizon, temperature=temp_irl)
-
+    r = max_causal_ent_irl(mdp, trajectories, gamma, horizon, t_irl, epochs, 
+                           learning_rate)
     print('Final reward: ', r)
 
 if __name__ == "__main__":
