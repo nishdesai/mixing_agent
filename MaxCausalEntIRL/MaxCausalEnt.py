@@ -54,7 +54,7 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
         
         # Compute the Boltzmann rational policy \pi_{s,a} = \exp(Q_{s,a} - V_s) 
         policy = compute_policy(mdp, gamma, r, V, Q, horizon=horizon, 
-                                temperature=temperature) 
+                                temperature=temperature)
         
         # IRL log likelihood term: 
         # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
@@ -131,8 +131,9 @@ def softmax(x, t=1):
     '''
     Numerically stable computation of log(\sum_i exp(x_i))
     '''
+    if t == 0: return np.amax(x)
     if x.shape[0] == 1: return x
-
+   
     def softmax_2_arg(x1,x2, t):
         ''' 
         Numerically stable computation of log(exp(x1) + exp(x2))
@@ -140,7 +141,7 @@ def softmax(x, t=1):
         http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
         '''
         tlog = lambda x: t * np.log(x)
-        expt = lambda x: np.exp(1/t*x)
+        expt = lambda x: np.exp(x/t)
         
         max_x = np.amax((x1,x2))
         min_x = np.amin((x1,x2))    
@@ -249,13 +250,23 @@ def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None,
         V, Q = compute_value_boltzmann(mdp, gamma, r, horizon, 
                                     threshold, temperature)
     
-    expt = lambda x: np.exp(1/temperature*x)
+    if temperature>0:
+        expt = lambda x: np.exp(x/temperature)
     
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
-            # This is exp(Q_{s,a} - V_s)
-            policy[s,a] = expt(Q[s,a] - V[s])
+            
+            #Boltzmann rational policy
+            if temperature>0:
+                print('t>0')
+                # This is exp((Q_{s,a} - V_s)/temperature)
+                policy[s,a] = expt(Q[s,a] - V[s])
+            # Ideally rational policy
+            else: 
+                if Q[s,a] == np.amax(Q[s,:]):
+                    policy[s,a] = 1
+                    break
     
     # Hack for finite horizon length to make the probabilities sum to 1:
     policy = policy / np.sum(policy, axis=1).reshape((mdp.nS, 1))
@@ -435,7 +446,8 @@ def main(t_expert = 1,
     
     # Compute the Boltzmann rational expert policy from the given true reward.
     V, Q = compute_value_boltzmann(mdp, gamma, r_expert, horizon, t_expert)
-    policy_expert = compute_policy(mdp, gamma, r_expert, V, Q, horizon)
+    policy_expert = compute_policy(mdp, gamma, r_expert, V, Q, horizon, 
+                                   temperature=t_expert)
     
     # Generate expert trajectories using the given expert policy.
     trajectories = generate_trajectories(mdp, policy_expert, traj_len, n_traj)
