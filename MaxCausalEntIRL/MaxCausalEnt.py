@@ -50,7 +50,6 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
         r = np.random.rand(mdp.nS)
 
     for i in range(epochs):
-        # For all s, aQ = 
         V, Q = compute_value_boltzmann(mdp, gamma, r, horizon, temperature)
         
         # Compute the Boltzmann rational policy \pi_{s,a} = \exp(Q_{s,a} - V_s) 
