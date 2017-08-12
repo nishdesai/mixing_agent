@@ -50,8 +50,8 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
         r = np.random.rand(mdp.nS)
 
     for i in range(epochs):
-        V, Q = compute_value_boltzmann(mdp, gamma, r, horizon = horizon, 
-                                       temperature=temperature)
+        # For all s, aQ = 
+        V, Q = compute_value_boltzmann(mdp, gamma, r, horizon, temperature)
         
         # Compute the Boltzmann rational policy \pi_{s,a} = \exp(Q_{s,a} - V_s) 
         policy = compute_policy(mdp, gamma, r, V, Q, horizon=horizon, 
@@ -78,7 +78,7 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
         # Gradient descent
         r = r - learning_rate * dL_dr
 
-        print('Epoch: ',i, 'log likelihood of all traj: ', L, 
+        if i%3==0: print('Epoch: ',i, 'log likelihood of all traj: ', L, 
             'average per traj step: ', 
             L/(trajectories.shape[0] * trajectories.shape[1]))
         
@@ -128,7 +128,7 @@ class MDP(object):
         return T
 
 
-def softmax(x, t):
+def softmax(x, t=1):
     '''
     Numerically stable computation of log(\sum_i exp(x_i))
     '''
@@ -152,7 +152,7 @@ def softmax(x, t):
     # softmax_2_arg(softmax_2_arg(x1,x2),x3) = log(exp(x1) + exp(x2) + exp(x3))
     # which is true since
     # log(exp(log(exp(x1) + exp(x2))) + exp(x3)) = log(exp(x1) + exp(x2) + exp(x3))
-    for (i,x_i) in enumerate(x):
+    for (i, x_i) in enumerate(x):
         if i>1: sm = softmax_2_arg(sm, x_i, t)
     return sm
 
@@ -197,8 +197,8 @@ def compute_value_boltzmann(mdp, gamma, r, horizon = None,  temperature=1,
         V_prev = np.copy(V)
         for s in range(mdp.nS):
             for a in range(mdp.nA):
-                # Q[s,a] = (r_s + \gamma \sum_{s'} p(s'|s,a)V_{s'}) / temperature
-                Q[s,a] = (r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev))
+                # Q[s,a] = (r_s + gamma * \sum_{s'} p(s'|s,a)V_{s'})
+                Q[s,a] = r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)
             
             # V_s = log(\sum_a exp(Q_sa))    
             V[s] = softmax(Q[s,:], temperature)
@@ -391,9 +391,9 @@ def main(t_expert = 1,
          gamma = 1,
          horizon = 40,
          n_traj = 200,
-         traj_len = 15,
+         traj_len = 14,
          learning_rate = 0.5,
-         epochs = 30):
+         epochs = 31):
     '''
     Demonstrates the usage of the implemented MaxCausalEnt IRL algorithm. 
     
@@ -451,6 +451,8 @@ def main(t_expert = 1,
           np.sum(sa_visit_count * (Q - V)) / (n_traj * traj_len), 
           '\n Average reward per expert trajectory', 
           np.sum(np.sum(sa_visit_count, axis=1)*r_expert) / n_traj, '\n')
+    
+    print((np.sum(sa_visit_count, axis=1) / n_traj).reshape((8,8)))
 
     # Find a reward vector that maximizes the log likelihood of the generated 
     # expert trajectories.
