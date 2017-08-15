@@ -259,7 +259,6 @@ def compute_policy(mdp, gamma, r=None, V=None, Q=None, horizon=None,
             
             #Boltzmann rational policy
             if temperature>0:
-                print('t>0')
                 # This is exp((Q_{s,a} - V_s)/temperature)
                 policy[s,a] = expt(Q[s,a] - V[s])
             # Ideally rational policy
