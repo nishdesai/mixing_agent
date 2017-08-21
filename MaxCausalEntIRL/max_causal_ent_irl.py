@@ -11,27 +11,27 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
     '''
     Finds a reward vector that maximizes the log likelihood of the given expert 
     trajectories, modelling the expert as a Boltzmann rational agent with the 
-    given temperature. By [citation], this is equivalent to finding a reward 
-    vector giving rise to a Boltzmann rational policy whose expected state 
-    visitation count matches the visitation counts of the given expert 
-    trajectories.
-    
-    The gradient of the log likelihood of the expert trajectories w.r.t the 
-    reward is the difference between the mean state visitation counts 
-    computed from the expert trajectories and the occupancy measure of the MDP 
-    under a policy induced by the reward vector.
+    given temperature. Assuming that the feature function is one hot enoding of 
+    the state, this is equivalent to finding a reward vector giving rise to a 
+    Boltzmann rational policy whose expected state visitation count matches the 
+    average visitation count of the given expert trajectories (Levine et al, 
+    supplement to the GPIRL paper).
 
     Parameters
     ----------
     mdp : object
         Instance of the MDP class.
+    trajectories : 3D numpy array
+        Expert trajectories. 
+        Dimensions: [number of traj, timesteps in the traj, state and action].
     gamma : float 
         Discount factor; 0<=gamma<=1.
     horizon : int
         Horizon for the finite horizon version of value iteration.
-    trajectories : 3D numpy array
-        Expert trajectories. 
-        Dimensions: [number of traj, timesteps in the traj, state and action].
+    temperature : float >= 0
+        The temperature parameter for computing V, Q and policy of the 
+        Boltzmann rational agent: p(a|s) is proportional to exp(Q/temperature);
+        the closer temperature is to 0 the more rational the agent is.
     epochs : int
         Number of iterations gradient descent will run.
     learning_rate : float
@@ -98,7 +98,7 @@ def main(t_expert=1e-5,
     '''
     Demonstrates the usage of the implemented MaxCausalEnt IRL algorithm. 
     
-    First a number of expert trajectories is generated using a true reward 
+    First a number of expert trajectories is generated using the true reward 
     giving rise to the Boltzmann rational expert policy with temperature t_exp. 
     
     Hereafter the max_causal_ent_irl() function is used to find a reward vector
@@ -107,8 +107,10 @@ def main(t_expert=1e-5,
     
     Parameters
     ----------
-    t_expert : float
-        Temperature of the Boltzmann rational expert policy.
+    t_expert : float >= 0
+        The temperature parameter for computing V, Q and policy of the 
+        Boltzmann rational expert: p(a|s) is proportional to exp(Q/t_expert);
+        the closer temperature is to 0 the more rational the expert is.
     t_irl : float
         Temperature of the Boltzmann rational policy the IRL algorithm assumes
         the expert followed when generating the trajectories.
