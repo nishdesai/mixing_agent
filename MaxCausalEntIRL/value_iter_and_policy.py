@@ -2,7 +2,7 @@ import numpy as np
 
 
 def vi_boltzmann(mdp, gamma, r, horizon=None,  temperature=1, 
-                            threshold=1e-16):
+                            threshold=1e-16, use_mellowmax=False):
     '''
     Find the optimal value function via value iteration with the max-ent 
     Bellman backup given at Algorithm 9.1 in Ziebart's PhD thesis 
@@ -43,25 +43,35 @@ def vi_boltzmann(mdp, gamma, r, horizon=None,  temperature=1,
             for a in range(mdp.nA):
                 # Q[s,a] = (r_s + gamma * \sum_{s'} p(s'|s,a)V_{s'})
                 Q[s,a] = r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)
-            
-            # V_s = log(\sum_a exp(Q_sa))    
-            V[s] = mellowmax(Q[s,:], temperature)
-            
-            if np.sum(np.isnan(V[s])) > 0: 
-                raise Exception('NaN encountered in VI, t=',t, 's=',s)
+    
+                
+            if use_mellowmax:
+                # V_s = log(\sum_a exp(Q_sa) / nA)
+                V[s] = mellowmax(Q[s,:], temperature)
+            else:
+                # V_s = log(\sum_a exp(Q_sa))
+                V[s] = softmax(Q[s,:], temperature)
 
         diff = np.amax(abs(V_prev - V))
         
         t+=1
+        if t<horizon and gamma==1:
+            # When \gamma=1, the backup operator is equivariant under adding 
+            # a constant to all entries of V, so we can translate min(V) 
+            # to be 0 at each step of the softmax value iteration without 
+            # changing the policy it converges to, and this fixes the problem 
+            # where log(nA) keep getting added at each iteration.
+            V = V - np.amin(V)
         if horizon is not None:
             if t==horizon: break
 
     return V.reshape((mdp.nS, 1)), Q
 
 
-def compute_policy_boltzmann(mdp, V, Q, temperature):
+def compute_policy_boltzmann(mdp, V, Q, temperature, use_mellowmax=False):
     '''
-    Computes the Boltzmann rational policy \pi_{s,a} = exp(Q_{s,a} - V_s).
+    Computes the Boltzmann rational policy 
+    \pi_{s,a} = exp((Q_{s,a} - V_s)/temperature).
     
     Parameters
     ----------
@@ -89,11 +99,12 @@ def compute_policy_boltzmann(mdp, V, Q, temperature):
     policy = np.zeros((mdp.nS, mdp.nA))
     for s in range(mdp.nS):
         for a in range(mdp.nA):
-            # exp((Q_{s,a} - V_s - temperature*log(nA))/temperature)
-            policy[s,a] = expt(Q[s,a] - V[s] - tlog(mdp.nA))
-            
-    if np.sum(np.isnan(policy)) > 0: 
-        raise Exception('NaN encountered in policy')
+            if use_mellowmax:
+                # exp((Q_{s,a} - V_s - t*log(nA))/t)
+                policy[s,a] = expt(Q[s,a] - V[s] - tlog(mdp.nA))
+            else:
+                # exp((Q_{s,a} - V_s)/t)
+                policy[s,a] = expt(Q[s,a] - V[s])
     
     return policy
 
@@ -144,7 +155,7 @@ def vi_rational(mdp, gamma, r, horizon=None, threshold=1e-16):
             V[s] = np.amax(Q[s,:])
 
         diff = np.amax(abs(V_prev - V))
-
+        
         t+=1
         if horizon is not None:
             if t==horizon: break
@@ -154,17 +165,13 @@ def vi_rational(mdp, gamma, r, horizon=None, threshold=1e-16):
 
 def compute_policy_rational(Q):
     '''
-    Computes the Boltzmann rational policy \pi_{s,a} = exp(Q_{s,a} - V_s).
+    Computes the rational policy \pi_{s,a} = \argmax(Q_{s,a}).
     
     Parameters
     ----------
-    mdp : object
-        Instance of the MDP class.
     Q : 2D numpy array
         Array of shape (mdp.nS, mdp.nA), each Q[s,a] is the value of 
         state-action pair [s,a].
-    V : 1D numpy array
-        Value of each of the states of the MDP.
 
     Returns
     -------
@@ -175,14 +182,16 @@ def compute_policy_rational(Q):
     
     policy = np.zeros_like(Q)
     for s in range(Q.shape[0]):
-        policy[s,:] = (Q[s,:] == np.amax(Q[s,:])) / np.sum((Q[s,:] == np.amax(Q[s,:])))
+        # Assigns equal probability to taking actions whose Q_sa == max_a(Q_sa)
+        max_Q_index = (Q[s,:] == np.amax(Q[s,:]))
+        policy[s,:] = max_Q_index / np.sum(max_Q_index)
     
     return policy
 
 
 def softmax(x, t=1):
     '''
-    Numerically stable computation of log(\sum_i^n exp(x_i))
+    Numerically stable computation of t*log(\sum_i^n exp(x_i / t))
     '''
     if t == 0: return np.amax(x)
     if x.shape[0] == 1: return x
@@ -212,7 +221,7 @@ def softmax(x, t=1):
 
 def mellowmax(x, t=1):
     '''
-    Numerically stable computation of log(1/n \sum_i^n exp(x_i))
+    Numerically stable computation of t*log(1/n \sum_i^n exp(x_i/t))
     '''
     if t == 0: return np.amax(x)
     if x.shape[0] == 1: return x
@@ -223,7 +232,7 @@ def mellowmax(x, t=1):
     def mellowmax_2_arg(x1,x2, i=1):
         ''' 
         Numerically stable computation of 
-        log(    (exp(x1)/i + exp(x2))/(i+1)    )
+        log((exp(x1)/i + exp(x2))/(i+1))
         '''
         x1 += -tlog(1/i)
         max_x = np.amax((x1,x2))
