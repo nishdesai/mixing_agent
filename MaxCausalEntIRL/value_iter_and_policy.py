@@ -52,7 +52,7 @@ def vi_boltzmann(mdp, gamma, r, horizon=None,  temperature=1,
         diff = np.amax(abs(V_prev - V))
         
         t+=1
-        if t<horizon and gamma==1:
+        if t<horizon and gamma==1 and not use_mellowmax:
             # When \gamma=1, the backup operator is equivariant under adding 
             # a constant to all entries of V, so we can translate min(V) 
             # to be 0 at each step of the softmax value iteration without 
@@ -93,11 +93,9 @@ def compute_policy_boltzmann(mdp, V, Q, temperature, use_mellowmax=False):
     expt = lambda x: np.exp(x/temperature)
     tlog = lambda x: temperature * np.log(x)
 
-    policy = np.zeros((mdp.nS, mdp.nA))
-
     if use_mellowmax:
         # exp((Q_{s,a} - V_s - t*log(nA))/t)
-        policy = expt(Q - V - tlog(mdp.nA))
+        policy = expt(Q - V - tlog(Q.shape[1]))
     else:
         # exp((Q_{s,a} - V_s)/t)
         policy = expt(Q - V)
