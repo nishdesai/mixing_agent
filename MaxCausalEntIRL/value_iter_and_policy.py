@@ -39,18 +39,15 @@ def vi_boltzmann(mdp, gamma, r, horizon=None,  temperature=1,
     diff = float("inf")
     while diff > threshold:
         V_prev = np.copy(V)
-        for s in range(mdp.nS):
-            for a in range(mdp.nA):
-                # Q[s,a] = (r_s + gamma * \sum_{s'} p(s'|s,a)V_{s'})
-                Q[s,a] = r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)
-    
-                
-            if use_mellowmax:
-                # V_s = log(\sum_a exp(Q_sa) / nA)
-                V[s] = mellowmax(Q[s,:], temperature)
-            else:
-                # V_s = log(\sum_a exp(Q_sa))
-                V[s] = softmax(Q[s,:], temperature)
+        
+        # Q[s,a] = (r_s + gamma * \sum_{s'} p(s'|s,a)V_{s'})
+        Q = r.reshape((-1,1)) + gamma * np.dot(mdp.T, V_prev)
+        if use_mellowmax:
+            # V_s = log(\sum_a exp(Q_sa) / nA)
+            V = mellowmax(Q, temperature)
+        else:
+            # V_s = log(\sum_a exp(Q_sa))
+            V = softmax(Q, temperature)
 
         diff = np.amax(abs(V_prev - V))
         
@@ -65,7 +62,7 @@ def vi_boltzmann(mdp, gamma, r, horizon=None,  temperature=1,
         if horizon is not None:
             if t==horizon: break
 
-    return V.reshape((mdp.nS, 1)), Q
+    return V.reshape((-1, 1)), Q
 
 
 def compute_policy_boltzmann(mdp, V, Q, temperature, use_mellowmax=False):
@@ -97,14 +94,13 @@ def compute_policy_boltzmann(mdp, V, Q, temperature, use_mellowmax=False):
     tlog = lambda x: temperature * np.log(x)
 
     policy = np.zeros((mdp.nS, mdp.nA))
-    for s in range(mdp.nS):
-        for a in range(mdp.nA):
-            if use_mellowmax:
-                # exp((Q_{s,a} - V_s - t*log(nA))/t)
-                policy[s,a] = expt(Q[s,a] - V[s] - tlog(mdp.nA))
-            else:
-                # exp((Q_{s,a} - V_s)/t)
-                policy[s,a] = expt(Q[s,a] - V[s])
+
+    if use_mellowmax:
+        # exp((Q_{s,a} - V_s - t*log(nA))/t)
+        policy = expt(Q - V - tlog(mdp.nA))
+    else:
+        # exp((Q_{s,a} - V_s)/t)
+        policy = expt(Q - V)
     
     return policy
 
@@ -140,19 +136,17 @@ def vi_rational(mdp, gamma, r, horizon=None, threshold=1e-16):
     '''
     
     V = np.copy(r)
-    Q = np.zeros(mdp.nS, mdp.nA)
+    Q = np.zeros((mdp.nS, mdp.nA))
 
     t = 0
     diff = float("inf")
     while diff > threshold:
         V_prev = np.copy(V)
-        for s in range(mdp.nS):
-            for a in range(mdp.nA):
-                # Q[s,a] = (r_s + gamma * \sum_{s'} p(s'|s,a)V_{s'})
-                Q[s,a] = r[s] + gamma * np.dot(mdp.T[s, a, :], V_prev)
-            
-            # V_s = max_a(Q_sa)
-            V[s] = np.amax(Q[s,:])
+        
+        # Q[s,a] = (r_s + gamma * \sum_{s'} p(s'|s,a)V_{s'})
+        Q = r.reshape((-1,1)) + gamma * np.dot(mdp.T, V_prev)
+        # V_s = max_a(Q_sa)
+        V = np.amax(Q, axis=1)
 
         diff = np.amax(abs(V_prev - V))
         
@@ -160,7 +154,7 @@ def vi_rational(mdp, gamma, r, horizon=None, threshold=1e-16):
         if horizon is not None:
             if t==horizon: break
 
-    return V.reshape((mdp.nS, 1)), Q
+    return V.reshape((-1, 1)), Q
 
 
 def compute_policy_rational(Q):
@@ -180,11 +174,9 @@ def compute_policy_rational(Q):
         of taking action a in state s.
     '''
     
-    policy = np.zeros_like(Q)
-    for s in range(Q.shape[0]):
-        # Assigns equal probability to taking actions whose Q_sa == max_a(Q_sa)
-        max_Q_index = (Q[s,:] == np.amax(Q[s,:]))
-        policy[s,:] = max_Q_index / np.sum(max_Q_index)
+    # Assigns equal probability to taking actions whose Q_sa == max_a(Q_sa)
+    max_Q_index = (Q == np.tile(np.amax(Q,axis=1),(Q.shape[1],1)).T)
+    policy = max_Q_index / np.sum(max_Q_index, axis=1).reshape((-1,1))
     
     return policy
 
@@ -193,8 +185,10 @@ def softmax(x, t=1):
     '''
     Numerically stable computation of t*log(\sum_i^n exp(x_i / t))
     '''
-    if t == 0: return np.amax(x)
-    if x.shape[0] == 1: return x
+
+    if len(x.shape) == 1: x = x.reshape((1,-1))
+    if t == 0: return np.amax(x, axis=1)
+    if x.shape[1] == 1: return x
    
     def softmax_2_arg(x1,x2, t):
         ''' 
@@ -205,16 +199,16 @@ def softmax(x, t=1):
         tlog = lambda x: t * np.log(x)
         expt = lambda x: np.exp(x/t)
                 
-        max_x = np.amax((x1,x2))
-        min_x = np.amin((x1,x2))    
+        max_x = np.amax((x1,x2),axis=0)
+        min_x = np.amin((x1,x2),axis=0)    
         return max_x + tlog(1+expt((min_x - max_x)))
     
-    sm = softmax_2_arg(x[0],x[1], t)
+    sm = softmax_2_arg(x[:,0],x[:,1], t)
     # Use the following property of softmax_2_arg:
     # softmax_2_arg(softmax_2_arg(x1,x2),x3) = log(exp(x1) + exp(x2) + exp(x3))
     # which is true since
     # log(exp(log(exp(x1) + exp(x2))) + exp(x3)) = log(exp(x1) + exp(x2) + exp(x3))
-    for (i, x_i) in enumerate(x):
+    for (i, x_i) in enumerate(x.T):
         if i>1: sm = softmax_2_arg(sm, x_i, t)
     return sm
 
@@ -223,8 +217,9 @@ def mellowmax(x, t=1):
     '''
     Numerically stable computation of t*log(1/n \sum_i^n exp(x_i/t))
     '''
-    if t == 0: return np.amax(x)
-    if x.shape[0] == 1: return x
+    if len(x.shape) == 1: x = x.reshape((1,-1))
+    if t == 0: return np.amax(x, axis=1)
+    if x.shape[1] == 1: return x
     
     tlog = lambda x: t * np.log(x)
     expt = lambda x: np.exp(x/t)
@@ -235,15 +230,15 @@ def mellowmax(x, t=1):
         log((exp(x1)/i + exp(x2))/(i+1))
         '''
         x1 += -tlog(1/i)
-        max_x = np.amax((x1,x2))
-        min_x = np.amin((x1,x2))    
+        max_x = np.amax((x1,x2),axis=0)
+        min_x = np.amin((x1,x2),axis=0)    
         return max_x + tlog(1+expt((min_x - max_x))) + tlog(1/(i+1))
     
     # Use the following property of softmax_2_arg:
     # softmax_2_arg(softmax_2_arg(x1,x2),x3) = log(exp(x1) + exp(x2) + exp(x3))
     # which is true since
     # log(exp(log(exp(x1) + exp(x2))) + exp(x3)) = log(exp(x1) + exp(x2) + exp(x3))
-    mm = mellowmax_2_arg(x[0],x[1])
-    for (i, x_i) in enumerate(x):
+    mm = mellowmax_2_arg(x[:,0],x[:,1])
+    for (i, x_i) in enumerate(x.T):
         if i>1: mm = mellowmax_2_arg(mm, x_i, i)
     return mm
