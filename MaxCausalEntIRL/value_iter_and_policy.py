@@ -4,10 +4,15 @@ import numpy as np
 def vi_boltzmann(mdp, gamma, r, horizon=None,  temperature=1, 
                             threshold=1e-16, use_mellowmax=False):
     '''
-    Find the optimal value function via value iteration with the max-ent 
-    Bellman backup given at Algorithm 9.1 in Ziebart's PhD thesis 
-    http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
+    Finds the optimal state and state-action value functions via value 
+    iteration with the "soft" max-ent Bellman backup:
+    
+    Q_{sa} = r_s + gamma * \sum_{s'} p(s'|s,a)V_{s'}
+    V'_s = temperature * log(\sum_a exp(Q_{sa}/temperature))
 
+    Computes the Boltzmann rational policy 
+    \pi_{s,a} = exp((Q_{s,a} - V_s)/temperature).
+    
     Parameters
     ----------
     mdp : object
@@ -30,11 +35,12 @@ def vi_boltzmann(mdp, gamma, r, horizon=None,  temperature=1,
     2D numpy array
         Array of shape (mdp.nS, mdp.nA), each Q[s,a] is the value of 
         state-action pair [s,a] under the reward r and Boltzmann policy.
+    2D numpy array
+        Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability 
+        of taking action a in state s.
     '''
-    
+    #Value iteration    
     V = np.copy(r)
-    Q = np.tile(r, (mdp.nA,1)).T
-
     t = 0
     diff = float("inf")
     while diff > threshold:
@@ -61,35 +67,10 @@ def vi_boltzmann(mdp, gamma, r, horizon=None,  temperature=1,
             V = V - np.amin(V)
         if horizon is not None:
             if t==horizon: break
-
-    return V.reshape((-1, 1)), Q
-
-
-def compute_policy_boltzmann(mdp, V, Q, temperature, use_mellowmax=False):
-    '''
-    Computes the Boltzmann rational policy 
-    \pi_{s,a} = exp((Q_{s,a} - V_s)/temperature).
     
-    Parameters
-    ----------
-    mdp : object
-        Instance of the MDP class.
-    Q : 2D numpy array
-        Array of shape (mdp.nS, mdp.nA), each Q[s,a] is the value of 
-        state-action pair [s,a].
-    V : 1D numpy array
-        Value of each of the states of the MDP.
-
-    Returns
-    -------
-    2D numpy array
-        Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability 
-        of taking action a in state s.
-    '''
+    V = V.reshape((-1, 1))
     
-    if temperature<=0:
-        raise ValueError('temperature <= 0')
-
+    # Compute policy
     expt = lambda x: np.exp(x/temperature)
     tlog = lambda x: temperature * np.log(x)
 
@@ -99,16 +80,18 @@ def compute_policy_boltzmann(mdp, V, Q, temperature, use_mellowmax=False):
     else:
         # exp((Q_{s,a} - V_s)/t)
         policy = expt(Q - V)
-    
-    return policy
+        
+    return V, Q, policy
+
 
 
 def vi_rational(mdp, gamma, r, horizon=None, threshold=1e-16):
     '''
-    Find the optimal value function via value iteration with the max-ent 
-    Bellman backup given at Algorithm 9.1 in Ziebart's PhD thesis 
-    http://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf.
-
+    Finds the optimal state and state-action value functions via value 
+    iteration with the Bellman backup.
+    
+    Computes the rational policy \pi_{s,a} = \argmax(Q_{s,a}).
+    
     Parameters
     ----------
     mdp : object
@@ -131,10 +114,12 @@ def vi_rational(mdp, gamma, r, horizon=None, threshold=1e-16):
     2D numpy array
         Array of shape (mdp.nS, mdp.nA), each Q[s,a] is the value of 
         state-action pair [s,a] under the reward r and Boltzmann policy.
+    2D numpy array
+        Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability 
+        of taking action a in state s.
     '''
     
     V = np.copy(r)
-    Q = np.zeros((mdp.nS, mdp.nA))
 
     t = 0
     diff = float("inf")
@@ -151,32 +136,15 @@ def vi_rational(mdp, gamma, r, horizon=None, threshold=1e-16):
         t+=1
         if horizon is not None:
             if t==horizon: break
-
-    return V.reshape((-1, 1)), Q
-
-
-def compute_policy_rational(Q):
-    '''
-    Computes the rational policy \pi_{s,a} = \argmax(Q_{s,a}).
     
-    Parameters
-    ----------
-    Q : 2D numpy array
-        Array of shape (mdp.nS, mdp.nA), each Q[s,a] is the value of 
-        state-action pair [s,a].
+    V = V.reshape((-1, 1))
 
-    Returns
-    -------
-    2D numpy array
-        Array of shape (mdp.nS, mdp.nA), each value p[s,a] is the probability 
-        of taking action a in state s.
-    '''
-    
+    # Compute policy
     # Assigns equal probability to taking actions whose Q_sa == max_a(Q_sa)
     max_Q_index = (Q == np.tile(np.amax(Q,axis=1),(Q.shape[1],1)).T)
     policy = max_Q_index / np.sum(max_Q_index, axis=1).reshape((-1,1))
-    
-    return policy
+
+    return V, Q, policy
 
 
 def softmax(x, t=1):

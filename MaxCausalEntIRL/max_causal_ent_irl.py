@@ -2,11 +2,10 @@ import numpy as np
 from frozen_lake import FrozenLakeEnvMultigoal
 from mdps import MDP, MDPOneTimeR
 from traj_tools import generate_trajectories, compute_s_a_visitations
-from value_iter_and_policy import vi_boltzmann, compute_policy_boltzmann 
-from value_iter_and_policy import vi_rational, compute_policy_rational
+from value_iter_and_policy import vi_boltzmann, vi_rational 
 from occupancy_measure import compute_D
 
-def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1, 
+def max_causal_ent_irl(mdp, trajectories, gamma=1, h=None, temperature=1, 
                        epochs=1, learning_rate=0.2, r=None):
     '''
     Finds a reward vector that maximizes the log likelihood of the given expert 
@@ -26,7 +25,7 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
         Dimensions: [number of traj, timesteps in the traj, state and action].
     gamma : float 
         Discount factor; 0<=gamma<=1.
-    horizon : int
+    h : int
         Horizon for the finite horizon version of value iteration.
     temperature : float >= 0
         The temperature parameter for computing V, Q and policy of the 
@@ -53,10 +52,8 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
         r = np.random.rand(mdp.nS)
 
     for i in range(epochs):
-        V, Q = vi_boltzmann(mdp, gamma, r, horizon, temperature)
-        
         # Compute the Boltzmann rational policy \pi_{s,a} = \exp(Q_{s,a} - V_s) 
-        policy = compute_policy_boltzmann(mdp, V, Q, temperature)
+        V, Q, policy = vi_boltzmann(mdp, gamma, r, h, temperature)
         
         # IRL log likelihood term: 
         # L = 0; for all traj: for all (s, a) in traj: L += Q[s,a] - V[s]
@@ -83,14 +80,13 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, horizon=None, temperature=1,
             print('Epoch: {} log likelihood of all traj: {}'.format(i,L), 
                   ', average per traj step: {}'.format(
                   L/(trajectories.shape[0] * trajectories.shape[1])))
-        
     return r
 
 
 def main(t_expert=1e-5,
          t_irl=1e-5,
          gamma=1,
-         horizon=10,
+         h=10,
          n_traj=200,
          traj_len=10,
          learning_rate=0.01,
@@ -116,7 +112,7 @@ def main(t_expert=1e-5,
         the expert followed when generating the trajectories.
     gamma : float 
         Discount factor; 0<=gamma<=1.
-    horizon : int
+    h : int
         Horizon for the finite horizon version of value iteration subroutine of
         MaxCausalEnt IRL algorithm.
     n_traj : int
@@ -137,11 +133,9 @@ def main(t_expert=1e-5,
     
     # Compute the Boltzmann rational expert policy from the given true reward.
     if t_expert>0:
-        V, Q = vi_boltzmann(mdp, gamma, r_expert, horizon, t_expert)
-        policy_expert = compute_policy_boltzmann(mdp, V, Q, t_expert)
+        V, Q, policy_expert = vi_boltzmann(mdp, gamma, r_expert, h, t_expert)
     if t_expert==0:
-        V, Q = vi_rational(mdp, gamma, r_expert, horizon)
-        policy_expert = compute_policy_rational(Q)
+        V, Q, policy_expert = vi_rational(mdp, gamma, r_expert, h)
         
     # Generate expert trajectories using the given expert policy.
     trajectories = generate_trajectories(mdp, policy_expert, traj_len, n_traj)
@@ -158,7 +152,7 @@ def main(t_expert=1e-5,
 
     # Find a reward vector that maximizes the log likelihood of the generated 
     # expert trajectories.
-    r = max_causal_ent_irl(mdp, trajectories, gamma, horizon, t_irl, epochs, 
+    r = max_causal_ent_irl(mdp, trajectories, gamma, h, t_irl, epochs, 
                            learning_rate)
     print('Final reward: ', r)
 
