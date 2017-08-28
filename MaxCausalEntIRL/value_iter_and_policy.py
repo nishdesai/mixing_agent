@@ -167,7 +167,7 @@ def softmax(x, t=1):
             n = 1 if x was 1D, or 
             n is the number of rows (=x.shape[0]) if x was 2D.
     '''
-
+    assert t>=0
     if len(x.shape) == 1: x = x.reshape((1,-1))
     if t == 0: return np.amax(x, axis=1)
     if x.shape[1] == 1: return x
@@ -205,7 +205,30 @@ def softmax(x, t=1):
 
 def mellowmax(x, t=1):
     '''
-    Numerically stable computation of t*log(1/n \sum_i^n exp(x_i/t))
+    Numerically stable computation of mellowmax t*log(1/n \sum_j^n exp(x_j/t))
+    
+    As per http://proceedings.mlr.press/v70/asadi17a/asadi17a.pdf, this is a 
+    better version of softmax since mellowmax is a non-expansion an softmax is
+    not. The problem is that softmax(1,1,1) is not 1, but instead log(3).  
+    This causes the softmax value iteration to grow unnecessarily in ie cases 
+    with no positive reward loops when \gamma=1 and regular value iteration 
+    would converge.
+    
+    If the input is a 1D numpy array, computes it's mellowmax: 
+        output = t*log(1/n * \sum_j^n exp(x_j / t)).
+    If the input is a 2D numpy array, computes the mellowmax of each row:
+        output_i = t*log(1/n \sum_j^n exp(x_{ij} / t))
+    
+    Parameters
+    ----------
+    x : 1D or 2D numpy array
+        
+    Returns
+    -------
+    1D numpy array 
+        shape = (n,), where: 
+            n = 1 if x was 1D, or 
+            n is the number of rows (=x.shape[0]) if x was 2D.
     '''
     if len(x.shape) == 1: x = x.reshape((1,-1))
     sm = softmax(x, t=t)
