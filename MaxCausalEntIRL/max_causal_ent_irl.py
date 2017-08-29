@@ -5,8 +5,8 @@ from traj_tools import generate_trajectories, compute_s_a_visitations
 from value_iter_and_policy import vi_boltzmann, vi_rational 
 from occupancy_measure import compute_D
 
-def max_causal_ent_irl(mdp, trajectories, gamma=1, h=None, temperature=1, 
-                       epochs=1, learning_rate=0.2, r=None):
+def max_causal_ent_irl(mdp, feature_matrix, trajectories, gamma=1, h=None, temperature=1, 
+                       epochs=1, learning_rate=0.2, theta=None):
     '''
     Finds a reward vector that maximizes the log likelihood of the given expert 
     trajectories, modelling the expert as a Boltzmann rational agent with the 
@@ -48,10 +48,17 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, h=None, temperature=1,
     # of a trajectory starting in state s from the expert trajectories.
     sa_visit_count, P_0 = compute_s_a_visitations(mdp, gamma, trajectories)
     
-    if r is None:
-        r = np.random.rand(mdp.nS)
+    # Mean state visitation count of expert trajectories
+    # mean_s_visit_count[s] = ( \sum_{i,t} 1_{traj_s_{i,t} = s}) / num_traj
+    mean_s_visit_count = np.sum(sa_visit_count,1) / trajectories.shape[0]
+    mean_f_count = np.dot(feature_matrix.T, mean_s_visit_count)
+    
+    if theta is None:
+        theta = np.random.rand(feature_matrix.shape[1])
+        
 
     for i in range(epochs):
+        r = np.dot(feature_matrix, theta)
         # Compute the Boltzmann rational policy \pi_{s,a} = \exp(Q_{s,a} - V_s) 
         V, Q, policy = vi_boltzmann(mdp, gamma, r, h, temperature)
         
@@ -62,35 +69,31 @@ def max_causal_ent_irl(mdp, trajectories, gamma=1, h=None, temperature=1,
         # The expected #times policy π visits state s in a given #timesteps.
         D = compute_D(mdp, gamma, policy, P_0, t_max=trajectories.shape[1])        
 
-        # Mean state visitation count of expert trajectories
-        # mean_s_visit_count[s] = ( \sum_{i,t} 1_{traj_s_{i,t} = s}) / num_traj
-        mean_s_visit_count = np.sum(sa_visit_count,1) / trajectories.shape[0]
-
         # IRL log likelihood gradient w.r.t reward. Corresponds to line 9 of 
         # Algorithm 2 from the MaxCausalEnt IRL paper 
         # www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. 
         # Refer to the Note in this function. Minus sign to get the gradient 
         # of negative log likelihood, which we then minimize with GD.
-        dL_dr = -(mean_s_visit_count - D)
+        dL_dtheta = -(mean_f_count - np.dot(feature_matrix.T, D))
 
         # Gradient descent
-        r = r - learning_rate * dL_dr
+        theta = theta - learning_rate * dL_dtheta
 
-        if i%3==0: 
+        if (i+1)%5==0: 
             print('Epoch: {} log likelihood of all traj: {}'.format(i,L), 
                   ', average per traj step: {}'.format(
                   L/(trajectories.shape[0] * trajectories.shape[1])))
-    return r
+    return theta
 
 
-def main(t_expert=1e-5,
-         t_irl=1e-5,
+def main(t_expert=1e-2,
+         t_irl=1e-2,
          gamma=1,
          h=10,
          n_traj=200,
          traj_len=10,
          learning_rate=0.01,
-         epochs=31):
+         epochs=300):
     '''
     Demonstrates the usage of the implemented MaxCausalEnt IRL algorithm. 
     
@@ -127,9 +130,17 @@ def main(t_expert=1e-5,
     np.random.seed(0)
     mdp = MDPOneTimeR(FrozenLakeEnvMultigoal(is_slippery=False, goal=1))    
 
-    # The true reward 
-    r_expert = np.zeros(mdp.nS)
-    r_expert[24] = 1
+    # Features
+    feature_matrix = np.eye(mdp.nS)
+    # Add dummy feature to show that features work
+    if False:
+        feature_matrix = np.concatenate((feature_matrix, np.ones((mdp.nS,1))), 
+                                        axis=1)
+    
+    # The true reward weights and the reward
+    theta_expert = np.zeros(feature_matrix.shape[1])
+    theta_expert[24] = 1
+    r_expert = np.dot(feature_matrix, theta_expert)
     
     # Compute the Boltzmann rational expert policy from the given true reward.
     if t_expert>0:
@@ -152,9 +163,9 @@ def main(t_expert=1e-5,
 
     # Find a reward vector that maximizes the log likelihood of the generated 
     # expert trajectories.
-    r = max_causal_ent_irl(mdp, trajectories, gamma, h, t_irl, epochs, 
-                           learning_rate)
-    print('Final reward: ', r)
+    theta = max_causal_ent_irl(mdp, feature_matrix, trajectories, gamma, h, 
+                               t_irl, epochs, learning_rate)
+    print('Final reward weights: ', theta)
 
 if __name__ == "__main__":
     main()
