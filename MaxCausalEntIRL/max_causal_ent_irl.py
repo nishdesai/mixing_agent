@@ -5,21 +5,25 @@ from traj_tools import generate_trajectories, compute_s_a_visitations
 from value_iter_and_policy import vi_boltzmann, vi_rational 
 from occupancy_measure import compute_D
 
-def max_causal_ent_irl(mdp, feature_matrix, trajectories, gamma=1, h=None, temperature=1, 
-                       epochs=1, learning_rate=0.2, theta=None):
+def max_causal_ent_irl(mdp, feature_matrix, trajectories, gamma=1, h=None, 
+                       temperature=1, epochs=1, learning_rate=0.2, theta=None):
     '''
-    Finds a reward vector that maximizes the log likelihood of the given expert 
-    trajectories, modelling the expert as a Boltzmann rational agent with the 
-    given temperature. Assuming that the feature function is one hot enoding of 
-    the state, this is equivalent to finding a reward vector giving rise to a 
-    Boltzmann rational policy whose expected state visitation count matches the 
-    average visitation count of the given expert trajectories (Levine et al, 
-    supplement to the GPIRL paper).
+    Finds theta, a reward parametrization vector (r[s] = features[s]'.*theta) 
+    that maximizes the log likelihood of the given expert trajectories, 
+    modelling the expert as a Boltzmann rational agent with given temperature. 
+    
+    This is equivalent to finding a reward parametrization vector giving rise 
+    to a reward vector giving rise to Boltzmann rational policy whose expected 
+    feature count matches the average feature count of the given expert 
+    trajectories (Levine et al, supplement to the GPIRL paper).
 
     Parameters
     ----------
     mdp : object
         Instance of the MDP class.
+    feature_matrix : 2D numpy array
+        Each of the rows of the feature matrix is a vector of features of the 
+        corresponding state of the MDP. 
     trajectories : 3D numpy array
         Expert trajectories. 
         Dimensions: [number of traj, timesteps in the traj, state and action].
@@ -35,13 +39,14 @@ def max_causal_ent_irl(mdp, feature_matrix, trajectories, gamma=1, h=None, tempe
         Number of iterations gradient descent will run.
     learning_rate : float
         Learning rate for gradient descent.
-    r : 1D numpy array
-        Initial reward vector with the length equal to the #states in the MDP.
+    theta : 1D numpy array
+        Initial reward function parameters vector with the length equal to the 
+        #features.
     Returns
     -------
     1D numpy array
-        Reward vector computed with Maximum Causal Entropy algorithm from 
-        the expert trajectories.
+        Reward function parameters computed with Maximum Causal Entropy 
+        algorithm from the expert trajectories.
     '''    
     
     # Compute the state-action visitation counts and the probability 
@@ -51,6 +56,7 @@ def max_causal_ent_irl(mdp, feature_matrix, trajectories, gamma=1, h=None, tempe
     # Mean state visitation count of expert trajectories
     # mean_s_visit_count[s] = ( \sum_{i,t} 1_{traj_s_{i,t} = s}) / num_traj
     mean_s_visit_count = np.sum(sa_visit_count,1) / trajectories.shape[0]
+    # Mean feature count of expert trajectories
     mean_f_count = np.dot(feature_matrix.T, mean_s_visit_count)
     
     if theta is None:
@@ -72,8 +78,8 @@ def max_causal_ent_irl(mdp, feature_matrix, trajectories, gamma=1, h=None, tempe
         # IRL log likelihood gradient w.r.t reward. Corresponds to line 9 of 
         # Algorithm 2 from the MaxCausalEnt IRL paper 
         # www.cs.cmu.edu/~bziebart/publications/maximum-causal-entropy.pdf. 
-        # Refer to the Note in this function. Minus sign to get the gradient 
-        # of negative log likelihood, which we then minimize with GD.
+        # Negate to get the gradient of neg log likelihood, 
+        # which is then minimized with GD.
         dL_dtheta = -(mean_f_count - np.dot(feature_matrix.T, D))
 
         # Gradient descent
